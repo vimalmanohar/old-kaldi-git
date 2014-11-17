@@ -3,6 +3,7 @@
 # Apache 2.0.
 use File::Basename;
 use Cwd;
+use Getopt::Long;
 
 # queue.pl has the same functionality as run.pl, except that
 # it runs the job in question on the queue (Sun GridEngine).
@@ -12,7 +13,20 @@ use Cwd;
 
 $qsub_opts = "";
 $sync = 0;
-$nof_threads=1;
+
+# Command line configuration
+$mem = "";
+$num_threads = "";
+$max_job_run = -1;
+$gpu = 0;
+$config = "conf/queue.conf"
+
+# Parse command line options
+GetOptions('mem:%s' => \$mem,
+           'num-threads:%d' => \$num_threads,
+           'max-job-run:%d' => \$max_job_run,
+           'gpu:%d' => \$gpu,
+           'config:%s' => \$config);
 
 for ($x = 1; $x <= 3; $x++) { # This for-loop is to 
   # allow the JOB=1:n option to be interleaved with the
@@ -30,7 +44,7 @@ for ($x = 1; $x <= 3; $x++) { # This for-loop is to
       if ($switch eq "-pe") { # e.g. -pe smp 5
         $option2 = shift @ARGV;
         $qsub_opts .= "$option2 ";
-        $nof_threads = $option2;
+        $num_threads = $option2;
       }
     }
   }
@@ -52,7 +66,6 @@ for ($x = 1; $x <= 3; $x++) { # This for-loop is to
   }
 }
 
-
 if (@ARGV < 2) {
   print STDERR
    "Usage: queue.pl [options to qsub] [JOB=1:n] log-file command-line arguments...\n" .
@@ -66,6 +79,73 @@ if (@ARGV < 2) {
    "Note: if you pass the \"-sync y\" option to qsub, this script will take note\n" .
    "and change its behavior.  Otherwise it uses qstat to work out when the job finished\n";
   exit 1;
+}
+
+# Convert the configuration to options to the queue system
+# as defined in the config file.
+# Assume GridEngine as default if no config file is given.
+@opts = ("standard_opts", "mem_opts", "thread_opts", "gpu_opts", "max_job_opts");
+foreach my $opt @opts {
+  eval "\$$opt = \"\"";
+}
+
+if ($mem ne "") {
+  $mem_opts = "- l mem_free=$mem,ram_free=$mem";
+}
+
+if ($num_threads > 1) {
+  $thread_opts = "-pe smp $num_threads";
+}
+
+if ($gpu > 0) {
+  $gpu_opts = "-l gpu=$gpu -q gpu.q";
+} elsif ($gpu == 0) {
+  $gpu_opts = "-q all.q";
+} else {
+  print STDERR "Invalid #gpu specified '$gpu'\n";
+  exit(1);
+}
+
+if ($max_job_run != -1) {
+  ($max_job_run > 0) || die "Invalid max-job-run '$max_job_run'";
+  $max_job_opts = "-tc $max_job_run";
+}
+
+open CONFIG, $config;
+
+while(<CONFIG>) {
+  chomp;
+  $line = $_;
+  $_ =~ s/\s*#.*//g;
+  if ($_ eq "") { next; }
+  if ($_ =~ m/^standard_opts (.+)/) {
+    $standard_opts = $1;
+  } elsif ($_ =~ m/^mem=* (.+)/) {
+    $mem_opts = $1;
+    $mem_opts =~ s/\$0/$mem/g;
+  } elsif ($_ =~ m/^num_threads=* (.+)/) {
+    $thread_opts = $1;
+    $thread_opts =~ s/\$0/$num_threads/g;
+  } elsif ($_ =~ m/^default gpu=(\d+)/ && $gpu == 0) {
+    $gpu = $1;
+  } elsif ($_ =~ m/^gpu=0 (.+)/ && $gpu == 0) {
+    $gpu_opts = $1;
+  } elsif ($_ =~ m/^gpu=* (.+)/ && $gpu > 0) {
+    $gpu_opts = $1;
+    $gpu_opts =~ s/\$0/$gpu/g;
+  } else {
+    print STDERR "queue.pl: unable to parse line '$line' in $config\n";
+    exit(1);
+  }
+}
+
+close(CONFIG);
+
+foreach my $opt @opts {
+  my $var = eval "\$$opt";
+  if ($var ne "") {
+    $qsub_opts .= "$var ";
+  }
 }
 
 $cwd = getcwd();
@@ -165,7 +245,7 @@ print Q "time1=\`date +\"%s\"\`\n";
 print Q " ( $cmd ) 2>>$logfile >>$logfile\n";
 print Q "ret=\$?\n";
 print Q "time2=\`date +\"%s\"\`\n";
-print Q "echo '#' Accounting: time=\$((\$time2-\$time1)) threads=$nof_threads >>$logfile\n";
+print Q "echo '#' Accounting: time=\$((\$time2-\$time1)) threads=$num_threads >>$logfile\n";
 print Q "echo '#' Finished at \`date\` with status \$ret >>$logfile\n";
 print Q "[ \$ret -eq 137 ] && exit 100;\n"; # If process was killed (e.g. oom) it will exit with status 137;
   # let the script return with status 100 which will put it to E state; more easily rerunnable.
