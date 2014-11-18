@@ -1,4 +1,7 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
 # Copyright 2012  Johns Hopkins University (Author: Daniel Povey).
 # Apache 2.0.
 use File::Basename;
@@ -11,62 +14,22 @@ use Getopt::Long;
 # of the grid engine.  Note: it's different from the queue.pl
 # in the s4 and earlier scripts.
 
-$qsub_opts = "";
-$sync = 0;
+my $qsub_opts = "";
+my $sync = 0;
+my $num_threads = 1;
+my $gpu = 0;
 
-# Command line configuration
-$mem = "";
-$num_threads = "";
-$max_job_run = -1;
-$gpu = 0;
-$config = "conf/queue.conf"
+my $config = "conf/queue.conf";
 
-# Parse command line options
-GetOptions('mem:%s' => \$mem,
-           'num-threads:%d' => \$num_threads,
-           'max-job-run:%d' => \$max_job_run,
-           'gpu:%d' => \$gpu,
-           'config:%s' => \$config);
+my %cli_options = ();
 
-for ($x = 1; $x <= 3; $x++) { # This for-loop is to 
-  # allow the JOB=1:n option to be interleaved with the
-  # options to qsub.
-  while (@ARGV >= 2 && $ARGV[0] =~ m:^-:) {
-    $switch = shift @ARGV;
-    if ($switch eq "-V") {
-      $qsub_opts .= "-V ";
-    } else {
-      $option = shift @ARGV;
-      if ($switch eq "-sync" && $option =~ m/^[yY]/) {
-        $sync = 1;
-      }
-      $qsub_opts .= "$switch $option ";
-      if ($switch eq "-pe") { # e.g. -pe smp 5
-        $option2 = shift @ARGV;
-        $qsub_opts .= "$option2 ";
-        $num_threads = $option2;
-      }
-    }
-  }
-  if ($ARGV[0] =~ m/^([\w_][\w\d_]*)+=(\d+):(\d+)$/) {
-    $jobname = $1;
-    $jobstart = $2;
-    $jobend = $3;
-    shift;
-    if ($jobstart > $jobend) {
-      die "queue.pl: invalid job range $ARGV[0]";
-    }
-  } elsif ($ARGV[0] =~ m/^([\w_][\w\d_]*)+=(\d+)$/) { # e.g. JOB=1.
-    $jobname = $1;
-    $jobstart = $2;
-    $jobend = $2;
-    shift;
-  } elsif ($ARGV[0] =~ m/.+\=.*\:.*$/) {
-    print STDERR "Warning: suspicious first argument to queue.pl: $ARGV[0]\n";
-  }
-}
+my $jobname;
+my $jobstart;
+my $jobend;
 
-if (@ARGV < 2) {
+my $array_job = 0;
+
+sub print_usage() {
   print STDERR
    "Usage: queue.pl [options to qsub] [JOB=1:n] log-file command-line arguments...\n" .
    "e.g.: queue.pl foo.log echo baz\n" .
@@ -81,77 +44,148 @@ if (@ARGV < 2) {
   exit 1;
 }
 
+if (@ARGV < 2) {
+  print_usage();
+}
+
+for (my $x = 1; $x <= 3; $x++) { # This for-loop is to 
+  # allow the JOB=1:n option to be interleaved with the
+  # options to qsub.
+  while (@ARGV >= 2 && $ARGV[0] =~ m:^-:) {
+    my $switch = shift @ARGV;
+    
+    if ($switch eq "-V") {
+      $qsub_opts .= "-V ";
+    } else {
+      my $option = shift @ARGV;
+      if ($switch eq "-sync" && $option =~ m/^[yY]/) {
+        $sync = 1;
+        $qsub_opts .= "$switch $option ";
+      } elsif ($switch eq "-pe") { # e.g. -pe smp 5
+        my $option2 = shift @ARGV;
+        $qsub_opts .= "$switch $option $option2 ";
+        $num_threads = $option2;
+      } elsif ($switch =~ m/^--/) { # Config options
+        $switch =~ s/^--//;
+        $switch =~ s/-/_/g;         # Convert CLI switch to variable name
+        #while (@ARGV >= 1 && $ARGV[0] !~ m:^-:) { 
+        #  # Read the entire string corresponding to this switch
+        #  my $option2 = shift @ARGV;
+        #  $option .= " $option2";
+        #};
+        $cli_options{$switch} = $option;
+        print STDERR "Read config options --$switch $cli_options{$switch}\n";
+      } else {  # Other qsub options - passed as is
+        $qsub_opts .= "$switch $option ";
+        print STDERR "Read options $switch $option\n";
+      }
+    }
+  }
+  if ($ARGV[0] =~ m/^([\w_][\w\d_]*)+=(\d+):(\d+)$/) {
+    $array_job = 1;
+    $jobname = $1;
+    $jobstart = $2;
+    $jobend = $3;
+    shift;
+    if ($jobstart > $jobend) {
+      die "queue.pl: invalid job range $ARGV[0]";
+    }
+  } elsif ($ARGV[0] =~ m/^([\w_][\w\d_]*)+=(\d+)$/) { # e.g. JOB=1.
+    $array_job = 1;
+    $jobname = $1;
+    $jobstart = $2;
+    $jobend = $2;
+    shift;
+  } elsif ($ARGV[0] =~ m/.+\=.*\:.*$/) {
+    print STDERR "Warning: suspicious first argument to queue.pl: $ARGV[0]\n";
+  }
+}
+
+if (@ARGV < 2) {
+  print_usage();
+}
+
+if (exists $cli_options{"config"}) {
+  $config = $cli_options{"config"};
+}  
+
+if (keys %cli_options > 0) {
 # Convert the configuration to options to the queue system
 # as defined in the config file.
-# Assume GridEngine as default if no config file is given.
-@opts = ("standard_opts", "mem_opts", "thread_opts", "gpu_opts", "max_job_opts");
-foreach my $opt @opts {
-  eval "\$$opt = \"\"";
-}
+  print STDERR "Opening config file $config\n";
 
-if ($mem ne "") {
-  $mem_opts = "- l mem_free=$mem,ram_free=$mem";
-}
+  open CONFIG, "<$config" or die $!;
 
-if ($num_threads > 1) {
-  $thread_opts = "-pe smp $num_threads";
-}
+  my %cli_config_options = ();
+  my %cli_default_options = ();
 
-if ($gpu > 0) {
-  $gpu_opts = "-l gpu=$gpu -q gpu.q";
-} elsif ($gpu == 0) {
-  $gpu_opts = "-q all.q";
-} else {
-  print STDERR "Invalid #gpu specified '$gpu'\n";
-  exit(1);
-}
+  while(<CONFIG>) {
+    chomp;
+    my $line = $_;
+    $_ =~ s/\s*#.*//g;
+    if ($_ eq "") { next; }
+    if ($_ =~ m/^standard_opts (.+)/) {
+      my $standard_opts = $1;
+      # The standard opts are extra options passed to the queue command as is
+      $qsub_opts .= "$standard_opts ";
+      print STDERR "Read from config file standard options for $standard_opts\n"
+    } elsif ($_ =~ m/^([^=]+)=\* (.+)$/) { 
+      # Config option that needs replacement with parameter value read from CLI
+      my $var = $1;
+      my $option = $2;
+      if ($option !~ m:\$0:) {
+        die "Unable to parse line $line in $config\n";
+      }
+      if (exists $cli_options{$var}) {
+        $option =~ s/\$0/$cli_options{$var}/g;
+        $cli_config_options{$var} = $option;
+      }
+      print STDERR "Read from config file config option for $var: $option\n"
+    } elsif ($_ =~ m/^([^=]+)=(\S+) (.+)$/) {
+      # Config option that does not need replacement
+      my $var = $1;
+      my $default = $2;
+      my $option = $3;
+      if (exists $cli_options{$var}) {
+        $cli_default_options{($var,$default)} = $option;
+      }
+      print STDERR "Read from config file default option for $var: $option\n"
+    } elsif ($_ =~ m/^default (\S+)=(\S+)/) {
+      # Default options
+      my $var = $1;
+      my $value = $2;
+      if (!exists $cli_options{$var}) {
+        $cli_options{$var} = $value;
+      }
+      print STDERR "Read from config file default value $var=$value\n"
+    } elsif ($_ =~ m/^default (\S+)=(\S+)/) {
+    } else {
+      print STDERR "queue.pl: unable to parse line '$line' in $config\n";
+      exit(1);
+    }
+  }
 
-if ($max_job_run != -1) {
-  ($max_job_run > 0) || die "Invalid max-job-run '$max_job_run'";
-  $max_job_opts = "-tc $max_job_run";
-}
+  close(CONFIG);
 
-open CONFIG, $config;
+  for my $var (keys %cli_options) {
+    if ($var eq "config") { next; }
+    my $value = $cli_options{$var};
+    print STDERR "Parsing CLI option --$var $value\n";
 
-while(<CONFIG>) {
-  chomp;
-  $line = $_;
-  $_ =~ s/\s*#.*//g;
-  if ($_ eq "") { next; }
-  if ($_ =~ m/^standard_opts (.+)/) {
-    $standard_opts = $1;
-  } elsif ($_ =~ m/^mem=* (.+)/) {
-    $mem_opts = $1;
-    $mem_opts =~ s/\$0/$mem/g;
-  } elsif ($_ =~ m/^num_threads=* (.+)/) {
-    $thread_opts = $1;
-    $thread_opts =~ s/\$0/$num_threads/g;
-  } elsif ($_ =~ m/^default gpu=(\d+)/ && $gpu == 0) {
-    $gpu = $1;
-  } elsif ($_ =~ m/^gpu=0 (.+)/ && $gpu == 0) {
-    $gpu_opts = $1;
-  } elsif ($_ =~ m/^gpu=* (.+)/ && $gpu > 0) {
-    $gpu_opts = $1;
-    $gpu_opts =~ s/\$0/$gpu/g;
-  } else {
-    print STDERR "queue.pl: unable to parse line '$line' in $config\n";
-    exit(1);
+    if (exists $cli_default_options{($var,$value)}) {
+      $qsub_opts .= "$cli_default_options{($var,$value)} ";
+    } elsif (exists $cli_config_options{$var}) {
+      $qsub_opts .= "$cli_config_options{$var} ";
+    } else {
+      die "CLI option $var not described in $config file\n";
+    }
   }
 }
 
-close(CONFIG);
+my $cwd = getcwd();
+my $logfile = shift @ARGV;
 
-foreach my $opt @opts {
-  my $var = eval "\$$opt";
-  if ($var ne "") {
-    $qsub_opts .= "$var ";
-  }
-}
-
-$cwd = getcwd();
-$logfile = shift @ARGV;
-
-if (defined $jobname && $logfile !~ m/$jobname/
+if ($array_job == 1 && $logfile !~ m/$jobname/
     && $jobend > $jobstart) {
   print STDERR "queue.pl: you are trying to run a parallel job but "
     . "you are putting the output into just one log file ($logfile)\n";
@@ -169,9 +203,9 @@ if (defined $jobname && $logfile !~ m/$jobname/
 # is that stuff with spaces in should be quoted.  This doesn't
 # always work.
 #
-$cmd = "";
+my $cmd = "";
 
-foreach $x (@ARGV) { 
+foreach my $x (@ARGV) { 
   if ($x =~ m/^\S+$/) { $cmd .= $x . " "; } # If string contains no spaces, take
                                             # as-is.
   elsif ($x =~ m:\":) { $cmd .= "'$x' "; } # else if no dbl-quotes, use single
@@ -181,11 +215,11 @@ foreach $x (@ARGV) {
 #
 # Work out the location of the script file, and open it for writing.
 #
-$dir = dirname($logfile);
-$base = basename($logfile);
-$qdir = "$dir/q";
+my $dir = dirname($logfile);
+my $base = basename($logfile);
+my $qdir = "$dir/q";
 $qdir =~ s:/(log|LOG)/*q:/q:; # If qdir ends in .../log/q, make it just .../q.
-$queue_logfile = "$qdir/$base";
+my $queue_logfile = "$qdir/$base";
 
 if (!-d $dir) { system "mkdir -p $dir 2>/dev/null"; } # another job may be doing this...
 if (!-d $dir) { die "Cannot make the directory $dir\n"; }
@@ -201,7 +235,8 @@ if (! -d "$qdir") {
   ## NFS settings to something like 5 seconds.
 } 
 
-if (defined $jobname) { # It's an array job.
+my $queue_array_opt = "";
+if ($array_job == 1) { # It's an array job.
   $queue_array_opt = "-t $jobstart:$jobend"; 
   $logfile =~ s/$jobname/\$SGE_TASK_ID/g; # This variable will get 
   # replaced by qsub, in each job, with the job-id.
@@ -213,7 +248,7 @@ if (defined $jobname) { # It's an array job.
 
 # queue_scriptfile is as $queue_logfile [e.g. dir/q/foo.log] but
 # with the suffix .sh.
-$queue_scriptfile = $queue_logfile;
+my $queue_scriptfile = $queue_logfile;
 ($queue_scriptfile =~ s/\.[a-zA-Z]{1,5}$/.sh/) || ($queue_scriptfile .= ".sh");
 if ($queue_scriptfile !~ m:^/:) {
   $queue_scriptfile = $cwd . "/" . $queue_scriptfile; # just in case.
@@ -224,7 +259,7 @@ if ($queue_scriptfile !~ m:^/:) {
 # Also keep our current PATH around, just in case there was something
 # in it that we need (although we also source ./path.sh)
 
-$syncfile = "$qdir/done.$$";
+my $syncfile = "$qdir/done.$$";
 
 system("rm $queue_logfile $syncfile 2>/dev/null");
 #
@@ -249,20 +284,20 @@ print Q "echo '#' Accounting: time=\$((\$time2-\$time1)) threads=$num_threads >>
 print Q "echo '#' Finished at \`date\` with status \$ret >>$logfile\n";
 print Q "[ \$ret -eq 137 ] && exit 100;\n"; # If process was killed (e.g. oom) it will exit with status 137;
   # let the script return with status 100 which will put it to E state; more easily rerunnable.
-if (!defined $jobname) { # not an array job
+if ($array_job == 0) { # not an array job
   print Q "touch $syncfile\n"; # so we know it's done.
 } else {
   print Q "touch $syncfile.\$SGE_TASK_ID\n"; # touch a bunch of sync-files.
 }
 print Q "exit \$[\$ret ? 1 : 0]\n"; # avoid status 100 which grid-engine
 print Q "## submitted with:\n";       # treats specially.
-$qsub_cmd = "qsub -S /bin/bash -v PATH -cwd -j y -o $queue_logfile $qsub_opts $queue_array_opt $queue_scriptfile >>$queue_logfile 2>&1";
+my $qsub_cmd = "qsub -S /bin/bash -v PATH -cwd -j y -o $queue_logfile $qsub_opts $queue_array_opt $queue_scriptfile >>$queue_logfile 2>&1";
 print Q "# $qsub_cmd\n";
 if (!close(Q)) { # close was not successful... || die "Could not close script file $shfile";
   die "Failed to close the script file (full disk?)";
 }
 
-$ret = system ($qsub_cmd);
+my $ret = system ($qsub_cmd);
 if ($ret != 0) {
   if ($sync && $ret == 256) { # this is the exit status when a job failed (bad exit status)
     if (defined $jobname) { $logfile =~ s/\$SGE_TASK_ID/*/g; }
@@ -275,14 +310,15 @@ if ($ret != 0) {
   exit(1);
 }
 
+my $sge_job_id;
 if (! $sync) { # We're not submitting with -sync y, so we
   # need to wait for the jobs to finish.  We wait for the
   # sync-files we "touched" in the script to exist.
-  @syncfiles = ();
+  my @syncfiles = ();
   if (!defined $jobname) { # not an array job.
     push @syncfiles, $syncfile;
   } else {
-    for ($jobid = $jobstart; $jobid <= $jobend; $jobid++) {
+    for (my $jobid = $jobstart; $jobid <= $jobend; $jobid++) {
       push @syncfiles, "$syncfile.$jobid";
     }
   }
@@ -304,10 +340,10 @@ if (! $sync) { # We're not submitting with -sync y, so we
       die "Error: log file $queue_logfile does not specify the SGE job-id.";
     }
   }
-  $check_sge_job_ctr=1;
+  my $check_sge_job_ctr=1;
   #
-  $wait = 0.1;
-  foreach $f (@syncfiles) {
+  my $wait = 0.1;
+  foreach my $f (@syncfiles) {
     # wait for them to finish one by one.
     while (! -f $f) {
       sleep($wait);
@@ -353,11 +389,11 @@ if (! $sync) { # We're not submitting with -sync y, so we
           system("rm $qdir/.kick 2>/dev/null");
           if ( -f $f ) { next; }  #syncfile appeared, ok
           $f =~ m/\.(\d+)$/ || die "Bad sync-file name $f";
-          $job_id = $1;
+          my $job_id = $1;
           if (defined $jobname) {
             $logfile =~ s/\$SGE_TASK_ID/$job_id/g;
           }
-          $last_line = `tail -n 1 $logfile`;
+          my $last_line = `tail -n 1 $logfile`;
           if ($last_line =~ m/status 0$/ && (-M $logfile) < 0) {
             # if the last line of $logfile ended with "status 0" and
             # $logfile is newer than this program [(-M $logfile) gives the
@@ -383,7 +419,7 @@ if (! $sync) { # We're not submitting with -sync y, so we
       }
     }
   }
-  $all_syncfiles = join(" ", @syncfiles);
+  my $all_syncfiles = join(" ", @syncfiles);
   system("rm $all_syncfiles 2>/dev/null");
 }
 
@@ -391,22 +427,23 @@ if (! $sync) { # We're not submitting with -sync y, so we
 # But we don't know about its exit status.  We'll look at $logfile for this.
 # First work out an array @logfiles of file-locations we need to
 # read (just one, unless it's an array job).
-@logfiles = ();
+my @logfiles = ();
 if (!defined $jobname) { # not an array job.
   push @logfiles, $logfile;
 } else {
-  for ($jobid = $jobstart; $jobid <= $jobend; $jobid++) {
-    $l = $logfile; 
+  for (my $jobid = $jobstart; $jobid <= $jobend; $jobid++) {
+    my $l = $logfile; 
     $l =~ s/\$SGE_TASK_ID/$jobid/g;
     push @logfiles, $l;
   }
 }
 
-$num_failed = 0;
-foreach $l (@logfiles) {
-  @wait_times = (0.1, 0.2, 0.2, 0.3, 0.5, 0.5, 1.0, 2.0, 5.0, 5.0, 5.0, 10.0, 25.0);
-  for ($iter = 0; $iter <= @wait_times; $iter++) {
-    $line = `tail -10 $l 2>/dev/null`; # Note: although this line should be the last
+my $num_failed = 0;
+my $status = 1;
+foreach my $l (@logfiles) {
+  my @wait_times = (0.1, 0.2, 0.2, 0.3, 0.5, 0.5, 1.0, 2.0, 5.0, 5.0, 5.0, 10.0, 25.0);
+  for (my $iter = 0; $iter <= @wait_times; $iter++) {
+    my $line = `tail -10 $l 2>/dev/null`; # Note: although this line should be the last
     # line of the file, I've seen cases where it was not quite the last line because
     # of delayed output by the process that was running, or processes it had called.
     # so tail -10 gives it a little leeway.
@@ -442,7 +479,7 @@ else { # we failed.
     }
   } else {
     if (defined $jobname) { $logfile =~ s/\$SGE_TASK_ID/*/g; }
-    $numjobs = 1 + $jobend - $jobstart;
+    my $numjobs = 1 + $jobend - $jobstart;
     print STDERR "queue.pl: $num_failed / $numjobs failed, log is in $logfile\n";
   }
   exit(1);
