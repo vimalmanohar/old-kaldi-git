@@ -3,7 +3,9 @@ use strict;
 use warnings;
 
 # Copyright 2012  Johns Hopkins University (Author: Daniel Povey).
+#           2014  Vimal Manohar (Johns Hopkins University)
 # Apache 2.0.
+
 use File::Basename;
 use Cwd;
 use Getopt::Long;
@@ -58,6 +60,9 @@ for (my $x = 1; $x <= 3; $x++) { # This for-loop is to
       $qsub_opts .= "-V ";
     } else {
       my $option = shift @ARGV;
+      if ($option =~ m/^-/) {
+        print STDERR "Suspicious argument '$option' to $switch; starts with '-'\n";
+      }
       if ($switch eq "-sync" && $option =~ m/^[yY]/) {
         $sync = 1;
         $qsub_opts .= "$switch $option ";
@@ -112,72 +117,97 @@ if (exists $cli_options{"config"}) {
 if (keys %cli_options > 0) {
 # Convert the configuration to options to the queue system
 # as defined in the config file.
-  print STDERR "Opening config file $config\n";
 
-  open CONFIG, "<$config" or die $!;
+  my $opened_config_file = 1;
+
+  print STDERR "Opening config file $config\n";
+  open CONFIG, "<$config" or $opened_config_file = 0;
 
   my %cli_config_options = ();
   my %cli_default_options = ();
 
-  while(<CONFIG>) {
-    chomp;
-    my $line = $_;
-    $_ =~ s/\s*#.*//g;
-    if ($_ eq "") { next; }
-    if ($_ =~ m/^standard_opts (.+)/) {
-      my $standard_opts = $1;
-      # The standard opts are extra options passed to the queue command as is
-      $qsub_opts .= "$standard_opts ";
-      print STDERR "Read from config file standard options for $standard_opts\n"
-    } elsif ($_ =~ m/^([^=]+)=\* (.+)$/) { 
-      # Config option that needs replacement with parameter value read from CLI
-      my $var = $1;
-      my $option = $2;
-      if ($option !~ m:\$0:) {
-        die "Unable to parse line $line in $config\n";
+  if ($opened_config_file == 1) {
+    while(<CONFIG>) {
+      chomp;
+      my $line = $_;
+      $_ =~ s/\s*#.*//g;
+      if ($_ eq "") { next; }
+      if ($_ =~ m/^standard_opts (.+)/) {
+        my $standard_opts = $1;
+        # The standard opts are extra options passed to the queue command as is
+        $qsub_opts .= "$standard_opts ";
+        print STDERR "Read from config file standard options for $standard_opts\n"
+      } elsif ($_ =~ m/^([^=]+)=\* (.+)$/) { 
+        # Config option that needs replacement with parameter value read from CLI
+        my $var = $1;
+        my $option = $2;
+        if ($option !~ m:\$0:) {
+          die "Unable to parse line $line in $config\n";
+        }
+        if (exists $cli_options{$var}) {
+          $option =~ s/\$0/$cli_options{$var}/g;
+          $cli_config_options{$var} = $option;
+        }
+        print STDERR "Read from config file config option for $var: $option\n"
+      } elsif ($_ =~ m/^([^=]+)=(\S+) (.+)$/) {
+        # Config option that does not need replacement
+        my $var = $1;
+        my $default = $2;
+        my $option = $3;
+        if (exists $cli_options{$var}) {
+          $cli_default_options{($var,$default)} = $option;
+        }
+        print STDERR "Read from config file default option for $var: $option\n"
+      } elsif ($_ =~ m/^default (\S+)=(\S+)/) {
+        # Default options
+        my $var = $1;
+        my $value = $2;
+        if (!exists $cli_options{$var}) {
+          $cli_options{$var} = $value;
+        }
+        print STDERR "Read from config file default value $var=$value\n"
+      } elsif ($_ =~ m/^default (\S+)=(\S+)/) {
+      } else {
+        print STDERR "queue.pl: unable to parse line '$line' in $config\n";
+        exit(1);
       }
-      if (exists $cli_options{$var}) {
-        $option =~ s/\$0/$cli_options{$var}/g;
-        $cli_config_options{$var} = $option;
-      }
-      print STDERR "Read from config file config option for $var: $option\n"
-    } elsif ($_ =~ m/^([^=]+)=(\S+) (.+)$/) {
-      # Config option that does not need replacement
-      my $var = $1;
-      my $default = $2;
-      my $option = $3;
-      if (exists $cli_options{$var}) {
-        $cli_default_options{($var,$default)} = $option;
-      }
-      print STDERR "Read from config file default option for $var: $option\n"
-    } elsif ($_ =~ m/^default (\S+)=(\S+)/) {
-      # Default options
-      my $var = $1;
-      my $value = $2;
-      if (!exists $cli_options{$var}) {
-        $cli_options{$var} = $value;
-      }
-      print STDERR "Read from config file default value $var=$value\n"
-    } elsif ($_ =~ m/^default (\S+)=(\S+)/) {
-    } else {
-      print STDERR "queue.pl: unable to parse line '$line' in $config\n";
-      exit(1);
     }
-  }
 
-  close(CONFIG);
+    close(CONFIG);
 
-  for my $var (keys %cli_options) {
-    if ($var eq "config") { next; }
-    my $value = $cli_options{$var};
-    print STDERR "Parsing CLI option --$var $value\n";
+    for my $var (keys %cli_options) {
+      if ($var eq "config") { next; }
+      my $value = $cli_options{$var};
+      print STDERR "Parsing CLI option --$var $value\n";
 
-    if (exists $cli_default_options{($var,$value)}) {
-      $qsub_opts .= "$cli_default_options{($var,$value)} ";
-    } elsif (exists $cli_config_options{$var}) {
-      $qsub_opts .= "$cli_config_options{$var} ";
+      if (exists $cli_default_options{($var,$value)}) {
+        $qsub_opts .= "$cli_default_options{($var,$value)} ";
+      } elsif (exists $cli_config_options{$var}) {
+        $qsub_opts .= "$cli_config_options{$var} ";
+      } else {
+        die "CLI option $var not described in $config file\n";
+      }
+    }
+  } else {
+    print STDERR "Unable to open config file $config\n";
+    print STDERR "Trying default options\n";
+
+    if (exists $cli_options{"gpu"} && $cli_options{"gpu"} > 0) {
+      $qsub_opts .= "-q gpu.q -l gpu=" . $cli_options{"gpu"} . " ";
     } else {
-      die "CLI option $var not described in $config file\n";
+      $qsub_opts .= "-q all.q ";
+    }
+
+    if (exists $cli_options{"mem"}) {
+      $qsub_opts .= "-l ram_free=" . $cli_options{"mem"} . ",mem_free=" . $cli_options{"mem"} . " ";
+    }
+
+    if (exists $cli_options{"num_threads"} && $cli_options{"num_threads"} > 1) {
+      $qsub_opts .= "-pe smp " . $cli_optiions{"num_threads"} . " ";
+    }
+
+    if (exists $cli_options{"max_job_run"}) {
+      $qsub_opts .= "-tc " . $cli_options{"max_job_run"} . " ";
     }
   }
 }
