@@ -203,7 +203,7 @@ if (keys %cli_options > 0) {
     }
 
     if (exists $cli_options{"num_threads"} && $cli_options{"num_threads"} > 1) {
-      $qsub_opts .= "-pe smp " . $cli_optiions{"num_threads"} . " ";
+      $qsub_opts .= "-pe smp " . $cli_options{"num_threads"} . " ";
     }
 
     if (exists $cli_options{"max_job_run"}) {
