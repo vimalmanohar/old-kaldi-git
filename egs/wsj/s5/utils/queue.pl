@@ -77,17 +77,17 @@ sub print_usage() {
    " (which illustrates the mechanism to submit parallel jobs; note, you can use \n" .
    "  another string other than JOB)\n" .
    "Note: if you pass the \"-sync y\" option to qsub, this script will take note\n" .
-   "and change its behavior.  Otherwise it uses qstat to work out when the job finished\n"
-   "Options:\n"
-   "  --config <config-file> (default: $config)\n"
-   "  --queue-opts <options> (standard options to qsub or whatever\n"
-   "                          other command-line program that will be \n"
-   "                          given in the script, e.g.  -l arch=*64*\n"
-   "                          whatever other things...)\n"
-   "  --mem <mem-requirement> (e.g. --mem 2G, --mem 500M, \n"
-   "                           also support K and numbers mean bytes)\n"
-   "  --num-threads <num-threads> (default: $num_threads)\n"
-   "  --max-jobs-run <num-jobs>\n"
+   "and change its behavior.  Otherwise it uses qstat to work out when the job finished\n" .
+   "Options:\n" .
+   "  --config <config-file> (default: $config)\n" .
+   "  --queue-opts <options> (standard options to qsub or whatever\n" .
+   "                          other command-line program that will be \n" .
+   "                          given in the script, e.g.  -l arch=*64*\n" .
+   "                          whatever other things...)\n" .
+   "  --mem <mem-requirement> (e.g. --mem 2G, --mem 500M, \n" .
+   "                           also support K and numbers mean bytes)\n" .
+   "  --num-threads <num-threads> (default: $num_threads)\n" .
+   "  --max-jobs-run <num-jobs>\n" .
    "  --gpu <0|1> (default: $gpu)\n";
   exit 1;
 }
@@ -106,7 +106,7 @@ for (my $x = 1; $x <= 3; $x++) { # This for-loop is to
       $qsub_opts .= "-V ";
     } else {
       my $option = shift @ARGV;
-      if ($option =~ m/^-/) {
+      if ($option =~ m/^--/) {
         print STDERR "Suspicious argument '$option' to $switch; starts with '-'\n";
       }
       if ($switch eq "-sync" && $option =~ m/^[yY]/) {
@@ -236,7 +236,7 @@ if (keys %cli_options > 0) {
     if (exists $cli_options{"standard_opts"}) {
       $qsub_opts .= $cli_options{"standard_opts"} . " ";
     } else {
-      $qsub_opts .= "-l arch=*64* ";
+      $qsub_opts .= "-l arch=*64* -S /bin/bash ";
     }
 
     if (exists $cli_options{"gpu"} && $cli_options{"gpu"} > 0) {
@@ -368,7 +368,7 @@ if ($array_job == 0) { # not an array job
 }
 print Q "exit \$[\$ret ? 1 : 0]\n"; # avoid status 100 which grid-engine
 print Q "## submitted with:\n";       # treats specially.
-my $qsub_cmd = "qsub -S /bin/bash -v PATH -cwd -j y -o $queue_logfile $qsub_opts $queue_array_opt $queue_scriptfile >>$queue_logfile 2>&1";
+my $qsub_cmd = "qsub -v PATH -cwd -j y -o $queue_logfile $qsub_opts $queue_array_opt $queue_scriptfile >>$queue_logfile 2>&1";
 print Q "# $qsub_cmd\n";
 if (!close(Q)) { # close was not successful... || die "Could not close script file $shfile";
   die "Failed to close the script file (full disk?)";
