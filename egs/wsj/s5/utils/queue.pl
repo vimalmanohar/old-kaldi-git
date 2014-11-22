@@ -16,6 +16,41 @@ use Getopt::Long;
 # of the grid engine.  Note: it's different from the queue.pl
 # in the s4 and earlier scripts.
 
+# The script now supports configuring the queue system using a config file
+# (default in conf/queue.conf; but can be passed specified with --config option)
+# and a set of command line options. 
+# The current script handles:
+# 1) Normal configuration arguments
+# For e.g. a command line option of "--gpu 1" could be converted into the option
+# "-q g.q -l gpu=1" to qsub. How the CLI option is handled is determined by a
+# line in the config file like
+# gpu=* -q g.q -l gpu=$0
+# $0 here in the line is replaced with the argument read from the CLI and the
+# resulting string is passed to qsub.
+# 2) Special arguments to options such as 
+# gpu=0 -q all.q
+# If --gpu 0 is given in the command line, then "-q all.q" is passed to qsub
+# instead of "-q g.q -l gpu=0".
+# 3) Default argument
+# default gpu=0
+# If --gpu option is not passed in the command line, then the script behaves as
+# if --gpu 0 was passed since 0 is specified as the default argument for that
+# option
+# 4) Arbitrary options and arguments.
+# Any command line option starting with '--' and its argument would be handled
+# as long as its defined in the config file.
+# 5) Default behavior
+# If the config file that is passed using is not readable, then the script
+# behaves as if the queue has the following config file:
+# # cat conf/queue.conf
+# standard_opts=* -l arch=*64*
+# mem=* -l mem_free=$0,ram_free=$0
+# num_threads=* -pe smp $0
+# max_jobs_run=* -tc $0
+# default gpu=0
+# gpu=0 -q all.q
+# gpu=* -l gpu=$0 -q gpu.q
+
 my $qsub_opts = "";
 my $sync = 0;
 my $num_threads = 1;
@@ -33,7 +68,7 @@ my $array_job = 0;
 
 sub print_usage() {
   print STDERR
-   "Usage: queue.pl [options to qsub] [JOB=1:n] log-file command-line arguments...\n" .
+   "Usage: queue.pl [options] [JOB=1:n] log-file command-line arguments...\n" .
    "e.g.: queue.pl foo.log echo baz\n" .
    " (which will echo \"baz\", with stdout and stderr directed to foo.log)\n" .
    "or: queue.pl -q all.q\@xyz foo.log echo bar \| sed s/bar/baz/ \n" .
@@ -42,7 +77,18 @@ sub print_usage() {
    " (which illustrates the mechanism to submit parallel jobs; note, you can use \n" .
    "  another string other than JOB)\n" .
    "Note: if you pass the \"-sync y\" option to qsub, this script will take note\n" .
-   "and change its behavior.  Otherwise it uses qstat to work out when the job finished\n";
+   "and change its behavior.  Otherwise it uses qstat to work out when the job finished\n"
+   "Options:\n"
+   "  --config <config-file> (default: $config)\n"
+   "  --queue-opts <options> (standard options to qsub or whatever\n"
+   "                          other command-line program that will be \n"
+   "                          given in the script, e.g.  -l arch=*64*\n"
+   "                          whatever other things...)\n"
+   "  --mem <mem-requirement> (e.g. --mem 2G, --mem 500M, \n"
+   "                           also support K and numbers mean bytes)\n"
+   "  --num-threads <num-threads> (default: $num_threads)\n"
+   "  --max-jobs-run <num-jobs>\n"
+   "  --gpu <0|1> (default: $gpu)\n";
   exit 1;
 }
 
@@ -132,12 +178,7 @@ if (keys %cli_options > 0) {
       my $line = $_;
       $_ =~ s/\s*#.*//g;
       if ($_ eq "") { next; }
-      if ($_ =~ m/^standard_opts (.+)/) {
-        my $standard_opts = $1;
-        # The standard opts are extra options passed to the queue command as is
-        $qsub_opts .= "$standard_opts ";
-        print STDERR "Read from config file standard options for $standard_opts\n"
-      } elsif ($_ =~ m/^([^=]+)=\* (.+)$/) { 
+      if ($_ =~ m/^([^=]+)=\* (.+)$/) { 
         # Config option that needs replacement with parameter value read from CLI
         my $var = $1;
         my $option = $2;
@@ -191,6 +232,12 @@ if (keys %cli_options > 0) {
   } else {
     print STDERR "Unable to open config file $config\n";
     print STDERR "Trying default options\n";
+    
+    if (exists $cli_options{"standard_opts"}) {
+      $qsub_opts .= $cli_options{"standard_opts"} . " ";
+    } else {
+      $qsub_opts .= "-l arch=*64* ";
+    }
 
     if (exists $cli_options{"gpu"} && $cli_options{"gpu"} > 0) {
       $qsub_opts .= "-q gpu.q -l gpu=" . $cli_options{"gpu"} . " ";
