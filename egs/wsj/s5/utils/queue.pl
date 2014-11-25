@@ -43,13 +43,13 @@ use Getopt::Long;
 # If the config file that is passed using is not readable, then the script
 # behaves as if the queue has the following config file:
 # # cat conf/queue.conf
-# standard_opts=* -l arch=*64*
-# mem=* -l mem_free=$0,ram_free=$0
-# num_threads=* -pe smp $0
-# max_jobs_run=* -tc $0
+# command qsub -S /bin/bash -j y -l arch=*64*
+# option mem=* -l mem_free=$0,ram_free=$0
+# option num_threads=* -pe smp $0
+# option max_jobs_run=* -tc $0
 # default gpu=0
-# gpu=0 -q all.q
-# gpu=* -l gpu=$0 -q gpu.q
+# option gpu=0 -q all.q
+# option gpu=* -l gpu=$0 -q g.q
 
 my $qsub_opts = "";
 my $sync = 0;
@@ -65,6 +65,8 @@ my $jobstart;
 my $jobend;
 
 my $array_job = 0;
+
+print STDERR $0 . join(' ', @ARGV) . "\n";
 
 sub print_usage() {
   print STDERR
@@ -117,13 +119,11 @@ for (my $x = 1; $x <= 3; $x++) { # This for-loop is to
         $qsub_opts .= "$switch $option $option2 ";
         $num_threads = $option2;
       } elsif ($switch =~ m/^--/) { # Config options
+        # Convert CLI switch to variable name
+        # by removing '--' from the option and replacing any 
+        # '-' with a '_'
         $switch =~ s/^--//;
-        $switch =~ s/-/_/g;         # Convert CLI switch to variable name
-        #while (@ARGV >= 1 && $ARGV[0] !~ m:^-:) { 
-        #  # Read the entire string corresponding to this switch
-        #  my $option2 = shift @ARGV;
-        #  $option .= " $option2";
-        #};
+        $switch =~ s/-/_/g;         
         $cli_options{$switch} = $option;
         print STDERR "Read config options --$switch $cli_options{$switch}\n";
       } else {  # Other qsub options - passed as is
@@ -132,7 +132,7 @@ for (my $x = 1; $x <= 3; $x++) { # This for-loop is to
       }
     }
   }
-  if ($ARGV[0] =~ m/^([\w_][\w\d_]*)+=(\d+):(\d+)$/) {
+  if ($ARGV[0] =~ m/^([\w_][\w\d_]*)+=(\d+):(\d+)$/) { # e.g. JOB=1:20
     $array_job = 1;
     $jobname = $1;
     $jobstart = $2;
@@ -160,104 +160,108 @@ if (exists $cli_options{"config"}) {
   $config = $cli_options{"config"};
 }  
 
-if (keys %cli_options > 0) {
-# Convert the configuration to options to the queue system
-# as defined in the config file.
+my $default_config_file = "# Default configuration\n" .
+"command qsub -v PATH -cwd -S /bin/bash -j y -l arch=*64*\n" .
+"option mem=* -l mem_free=\\\$0,ram_free=\\\$0\n" .
+"option num_threads=* -pe smp \\\$0\n" .
+"option max_jobs_run=* -tc \\\$0\n" .
+"default gpu=0\n" .
+"option gpu=0 -q all.q\n" .
+"option gpu=* -l gpu=\\\$0 -q g.q\n";
 
-  my $opened_config_file = 1;
+# Here the configuration options specified by the user on the command line
+# (e.g. --mem 2G) are converted to options to the qsub system as defined in
+# the config file. (e.g. if the config file has the line 
+# "option mem=* -l ram_free=$0,mem_free=$0"
+# and the user has specified '--mem 2G' on the command line, the options
+# passed to queue system would be "-l ram_free=2G,mem_free=2G
+# A more detailed description of the ways the options would be handled is at
+# the top of this file.
 
-  print STDERR "Opening config file $config\n";
-  open CONFIG, "<$config" or $opened_config_file = 0;
+my $opened_config_file = 1;
 
-  my %cli_config_options = ();
-  my %cli_default_options = ();
+print STDERR "Opening config file $config\n";
+open CONFIG, "<$config" or $opened_config_file = 0;
 
-  if ($opened_config_file == 1) {
-    while(<CONFIG>) {
-      chomp;
-      my $line = $_;
-      $_ =~ s/\s*#.*//g;
-      if ($_ eq "") { next; }
-      if ($_ =~ m/^([^=]+)=\* (.+)$/) { 
-        # Config option that needs replacement with parameter value read from CLI
-        my $var = $1;
-        my $option = $2;
-        if ($option !~ m:\$0:) {
-          die "Unable to parse line $line in $config\n";
-        }
-        if (exists $cli_options{$var}) {
-          $option =~ s/\$0/$cli_options{$var}/g;
-          $cli_config_options{$var} = $option;
-        }
-        print STDERR "Read from config file config option for $var: $option\n"
-      } elsif ($_ =~ m/^([^=]+)=(\S+) (.+)$/) {
-        # Config option that does not need replacement
-        my $var = $1;
-        my $default = $2;
-        my $option = $3;
-        if (exists $cli_options{$var}) {
-          $cli_default_options{($var,$default)} = $option;
-        }
-        print STDERR "Read from config file default option for $var: $option\n"
-      } elsif ($_ =~ m/^default (\S+)=(\S+)/) {
-        # Default options
-        my $var = $1;
-        my $value = $2;
-        if (!exists $cli_options{$var}) {
-          $cli_options{$var} = $value;
-        }
-        print STDERR "Read from config file default value $var=$value\n"
-      } elsif ($_ =~ m/^default (\S+)=(\S+)/) {
-      } else {
-        print STDERR "queue.pl: unable to parse line '$line' in $config\n";
-        exit(1);
-      }
+my %cli_config_options = ();
+my %cli_default_options = ();
+
+if ($opened_config_file == 0) { # Open the default config file instead
+  print STDERR "Could not open $config\n";
+  print STDERR "Using defaut config file:\n$default_config_file";
+  open (CONFIG, "echo \"$default_config_file\" |") or die "Unable to open pipe\n";
+  $config = "Default config";
+}
+
+my $qsub_cmd = "";
+
+while(<CONFIG>) {
+  chomp;
+  my $line = $_;
+  $_ =~ s/\s*#.*//g;
+  if ($_ eq "") { next; }
+  if ($_ =~ /^command (.+)/) {
+    $qsub_cmd = $1 . " ";
+  } elsif ($_ =~ m/^option ([^=]+)=\* (.+)$/) { 
+    # Config option that needs replacement with parameter value read from CLI
+    # e.g.: option mem=* -l mem_free=$0,ram_free=$0
+    my $option = $1;     # mem
+    my $arg= $2;         # -l mem_free=$0,ram_free=$0
+    if ($arg !~ m:\$0:) {  
+      die "Unable to parse line $line in $config\n";
     }
-
-    close(CONFIG);
-
-    for my $var (keys %cli_options) {
-      if ($var eq "config") { next; }
-      my $value = $cli_options{$var};
-      print STDERR "Parsing CLI option --$var $value\n";
-
-      if (exists $cli_default_options{($var,$value)}) {
-        $qsub_opts .= "$cli_default_options{($var,$value)} ";
-      } elsif (exists $cli_config_options{$var}) {
-        $qsub_opts .= "$cli_config_options{$var} ";
-      } else {
-        die "CLI option $var not described in $config file\n";
-      }
+    if (exists $cli_options{$option}) {
+      # Replace $0 with the argument read from command line.
+      # e.g. "-l mem_free=$0,ram_free=$0" -> "-l mem_free=2G,ram_free=2G"
+      $arg =~ s/\$0/$cli_options{$option}/g;
+      $cli_config_options{$option} = $arg;
     }
+    print STDERR "Read from config file config option for $option: $arg\n"
+  } elsif ($_ =~ m/^option ([^=]+)=(\S+) (.+)$/) {
+    # Config option that does not need replacement
+    # e.g. option gpu=0 -q all.q
+    my $option = $1;      # gpu
+    my $value = $2;       # 0
+    my $arg = $3;         # -q all.q
+    if (exists $cli_options{$option}) {
+      $cli_default_options{($option,$value)} = $arg;
+    }
+    print STDERR "Read from config file default option for $option: $arg\n"
+  } elsif ($_ =~ m/^default (\S+)=(\S+)/) {
+    # Default options. Used for setting default values to options i.e. when
+    # the user does not specify the option on the command line 
+    # e.g. default gpu=0
+    my $option = $1;  # gpu
+    my $value = $2;   # 0
+    if (!exists $cli_options{$option}) {
+      # If the user has specified this option on the command line, then we
+      # don't have to do anything
+      $cli_options{$option} = $value;
+    }
+    print STDERR "Read from config file default value $option=$value\n"
   } else {
-    print STDERR "Unable to open config file $config\n";
-    print STDERR "Trying default options\n";
-    
-    if (exists $cli_options{"standard_opts"}) {
-      $qsub_opts .= $cli_options{"standard_opts"} . " ";
-    } else {
-      $qsub_opts .= "-l arch=*64* -S /bin/bash ";
-    }
-
-    if (exists $cli_options{"gpu"} && $cli_options{"gpu"} > 0) {
-      $qsub_opts .= "-q gpu.q -l gpu=" . $cli_options{"gpu"} . " ";
-    } else {
-      $qsub_opts .= "-q all.q ";
-    }
-
-    if (exists $cli_options{"mem"}) {
-      $qsub_opts .= "-l ram_free=" . $cli_options{"mem"} . ",mem_free=" . $cli_options{"mem"} . " ";
-    }
-
-    if (exists $cli_options{"num_threads"} && $cli_options{"num_threads"} > 1) {
-      $qsub_opts .= "-pe smp " . $cli_options{"num_threads"} . " ";
-    }
-
-    if (exists $cli_options{"max_job_run"}) {
-      $qsub_opts .= "-tc " . $cli_options{"max_job_run"} . " ";
-    }
+    print STDERR "queue.pl: unable to parse line '$line' in $config\n";
+    exit(1);
   }
 }
+
+close(CONFIG);
+
+for my $option (keys %cli_options) {
+  if ($option eq "config") { next; }
+  my $value = $cli_options{$option};
+  print STDERR "Parsing CLI option --$option $value\n";
+
+  if (exists $cli_default_options{($option,$value)}) {
+    $qsub_opts .= "$cli_default_options{($option,$value)} ";
+  } elsif (exists $cli_config_options{$option}) {
+    $qsub_opts .= "$cli_config_options{$option} ";
+  } else {
+    die "CLI option $option not described in $config file\n";
+  }
+}
+
+print STDERR "All options successfully parsed\n";
 
 my $cwd = getcwd();
 my $logfile = shift @ARGV;
@@ -297,6 +301,8 @@ my $base = basename($logfile);
 my $qdir = "$dir/q";
 $qdir =~ s:/(log|LOG)/*q:/q:; # If qdir ends in .../log/q, make it just .../q.
 my $queue_logfile = "$qdir/$base";
+
+print STDERR "Queue log file is $queue_logfile\n";
 
 if (!-d $dir) { system "mkdir -p $dir 2>/dev/null"; } # another job may be doing this...
 if (!-d $dir) { die "Cannot make the directory $dir\n"; }
@@ -368,7 +374,8 @@ if ($array_job == 0) { # not an array job
 }
 print Q "exit \$[\$ret ? 1 : 0]\n"; # avoid status 100 which grid-engine
 print Q "## submitted with:\n";       # treats specially.
-my $qsub_cmd = "qsub -v PATH -cwd -j y -o $queue_logfile $qsub_opts $queue_array_opt $queue_scriptfile >>$queue_logfile 2>&1";
+$qsub_cmd .= "-o $queue_logfile $qsub_opts $queue_array_opt $queue_scriptfile >>$queue_logfile 2>&1";
+print STDERR "# $qsub_cmd\n";
 print Q "# $qsub_cmd\n";
 if (!close(Q)) { # close was not successful... || die "Could not close script file $shfile";
   die "Failed to close the script file (full disk?)";
