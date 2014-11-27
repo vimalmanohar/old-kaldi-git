@@ -19,7 +19,7 @@ samples_per_iter=200000 # each iteration of training, see this many samples
 transform_dir=     # If supplied, overrides alidir
 num_jobs_nnet=16    # Number of neural net jobs to run in parallel
 stage=0
-io_opts="-tc 5" # for jobs with a lot of I/O, limits the number running at one time. 
+max_jobs_run=5      # -tc 5 for jobs with a lot of I/O, limits the number running at one time. 
 splice_width=4 # meaning +- 4 frames on each side for second LDA
 left_context=
 right_context=
@@ -249,7 +249,7 @@ if [ $stage -le 3 ]; then
   done
   echo "Generating training examples on disk"
   # The examples will go round-robin to egs_list.
-  $cmd $io_opts JOB=1:$nj $dir/log/get_egs.JOB.log \
+  $cmd --max-jobs-run $max_jobs_run JOB=1:$nj $dir/log/get_egs.JOB.log \
     nnet-get-egs $ivectors_opt $nnet_context_opts "$feats" \
     "ark,s,cs:gunzip -c $alidir/ali.JOB.gz | ali-to-pdf $alidir/final.mdl ark:- ark:- | ali-to-post ark:- ark:- |" ark:- \| \
     nnet-copy-egs ark:- $egs_list || exit 1;
@@ -274,7 +274,7 @@ if [ $stage -le 4 ]; then
     done
     # note, the "|| true" below is a workaround for NFS bugs
     # we encountered running this script with Debian-7, NFS-v4.
-    $cmd $io_opts JOB=1:$num_jobs_nnet $dir/log/split_egs.JOB.log \
+    $cmd --max-jobs-run $max_jobs_run JOB=1:$num_jobs_nnet $dir/log/split_egs.JOB.log \
       nnet-copy-egs --random=$random_copy --srand=JOB \
         "ark:cat $dir/egs/egs_orig.JOB.*.ark|" $egs_list || exit 1;
     remove $dir/egs/egs_orig.*.*.ark  2>/dev/null
@@ -288,7 +288,7 @@ if [ $stage -le 5 ]; then
   echo "(in order to avoid stressing the disk, these won't all run at once)."
 
   for n in `seq 0 $[$iters_per_epoch-1]`; do
-    $cmd $io_opts JOB=1:$num_jobs_nnet $dir/log/shuffle.$n.JOB.log \
+    $cmd --max-jobs-run $max_jobs_run JOB=1:$num_jobs_nnet $dir/log/shuffle.$n.JOB.log \
       nnet-shuffle-egs "--srand=\$[JOB+($num_jobs_nnet*$n)]" \
       ark:$dir/egs/egs_tmp.JOB.$n.ark ark:$dir/egs/egs.JOB.$n.ark 
     remove $dir/egs/egs_tmp.*.$n.ark

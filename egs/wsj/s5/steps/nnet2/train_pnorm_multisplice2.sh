@@ -60,7 +60,7 @@ splice_indexes="layer0/-4:-3:-2:-1:0:1:2:3:4 layer2/-5:-1:3"
 # so hidden layer indexing is different from component count
 
 
-io_opts="-tc 5" # for jobs with a lot of I/O, limits the number running at one time.   These don't
+max_jobs_run=5 # for jobs with a lot of I/O, limits the number running at one time.   These don't
 randprune=4.0 # speeds up LDA.
 alpha=4.0 # relates to preconditioning.
 update_period=4 # relates to online preconditioning: says how often we update the subspace.
@@ -71,12 +71,11 @@ precondition_rank_out=80 # relates to online preconditioning
 
 mix_up=0 # Number of components to mix up to (should be > #tree leaves, if
         # specified.)
-num_threads=16
-parallel_opts="-pe smp 16 -l ram_free=1G,mem_free=1G" 
+num_threads=16    # -pe smp 16
+mem=1G            # -l ram_free=1G,mem_free=1G" 
   # by default we use 16 threads; this lets the queue know.
   # note: parallel_opts doesn't automatically get adjusted if you adjust num-threads.
-combine_num_threads=8
-combine_parallel_opts="-pe smp 8"  # queue options for the "combine" stage.
+combine_num_threads=8   # -pe smp 8  # queue options for the "combine" stage.
 cleanup=true
 egs_dir=
 lda_opts=
@@ -210,7 +209,7 @@ if [ $stage -le -3 ] && [ -z "$egs_dir" ]; then
   echo "$0: calling get_egs2.sh"
   steps/nnet2/get_egs2.sh $egs_opts "${extra_opts[@]}" \
       --samples-per-iter $samples_per_iter --stage $get_egs_stage \
-      --io-opts "$io_opts" \
+      --max-jobs-run $max_jobs_run \
       --cmd "$cmd" $egs_opts \
       $data $alidir $dir/egs || exit 1;
 fi
@@ -292,8 +291,9 @@ mix_up_iter=$[($num_iters + $finish_add_layers_iter)/2]
 
 if [ $num_threads -eq 1 ]; then
   parallel_suffix="-simple" # this enables us to use GPU code if
-                         # we have just one thread.
+                           # we have just one thread.
   parallel_train_opts=
+  num_gpu=1
   if ! cuda-compiled; then
     echo "$0: WARNING: you are running with one thread but you have not compiled"
     echo "   for CUDA.  You may be running a setup optimized for GPUs.  If you have"
@@ -302,6 +302,8 @@ if [ $num_threads -eq 1 ]; then
 else
   parallel_suffix="-parallel"
   parallel_train_opts="--num-threads=$num_threads"
+  mem_opts="--mem $mem"
+  num_gpu=0
 fi
 
 
@@ -433,7 +435,7 @@ while [ $x -lt $num_iters ]; do
         # same archive with different frame indexes will give similar gradients,
         # so we want to separate them in time.
 
-        $cmd $parallel_opts $dir/log/train.$x.$n.log \
+        $cmd --num-threads $num_threads --gpu $num_gpu $mem_opts $dir/log/train.$x.$n.log \
           nnet-train$parallel_suffix $parallel_train_opts \
           --minibatch-size=$this_minibatch_size --srand=$x "$mdl" \
           "ark:nnet-copy-egs --frame=$frame ark:$cur_egs_dir/egs.$archive.ark ark:-|nnet-shuffle-egs --buffer-size=$shuffle_buffer_size --srand=$x ark:- ark:-|" \
@@ -533,7 +535,7 @@ if [ $stage -le $num_iters ]; then
   # nnet-combine-fast uses for scaling, which after flooring and inversion, has
   # the effect that the initial model chosen gets much higher learning rates
   # than the others.  This prevents the optimization from working well.
-  $cmd $combine_parallel_opts $dir/log/combine.log \
+  $cmd --num-threads $combine_num_threads $dir/log/combine.log \
     nnet-combine-fast --initial-model=100000 --num-lbfgs-iters=40 --use-gpu=no \
       --num-threads=$combine_num_threads \
       --verbose=3 --minibatch-size=$mb "${nnets_list[@]}" ark:$cur_egs_dir/combine.egs \

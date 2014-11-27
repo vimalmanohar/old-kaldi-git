@@ -48,7 +48,7 @@ samples_per_iter=400000 # each iteration of training, see this many samples
 transform_dir=     # If supplied, overrides alidir as the place to find fMLLR transforms
 
 stage=0
-io_opts="-tc 5" # for jobs with a lot of I/O, limits the number running at one time. 
+max_jobs_run=5  #-tc 5 for jobs with a lot of I/O, limits the number running at one time. 
 random_copy=false
 online_ivector_dir=  # can be used if we are including speaker information as iVectors.
 cmvn_opts=  # can be used for specifying CMVN options, if feature type is not lda (if lda,
@@ -281,7 +281,7 @@ if [ $stage -le 3 ]; then
   echo "$0: Generating training examples on disk"
   
   # The examples will go round-robin to egs_list.
-  $cmd $io_opts JOB=1:$nj $dir/log/get_egs.JOB.log \
+  $cmd --max-jobs-run $max_jobs_run JOB=1:$nj $dir/log/get_egs.JOB.log \
     nnet-get-egs $ivectors_opt $nnet_context_opts --num-frames=$frames_per_eg "$feats" \
     "ark,s,cs:gunzip -c $alidir/ali.JOB.gz | ali-to-pdf $alidir/final.mdl ark:- ark:- | ali-to-post ark:- ark:- |" ark:- \| \
     nnet-copy-egs ark:- $egs_list || exit 1;
@@ -297,7 +297,7 @@ if [ $stage -le 4 ]; then
     egs_list="$egs_list $dir/egs_orig.JOB.$n.ark"
   done
 
-  $cmd $io_opts $extra_opts JOB=1:$num_archives $dir/log/shuffle.JOB.log \
+  $cmd --max-jobs-run $max_jobs_run $extra_opts JOB=1:$num_archives $dir/log/shuffle.JOB.log \
     nnet-shuffle-egs --srand=JOB "ark:cat $egs_list|" ark:$dir/egs.JOB.ark  || exit 1;
 fi
 
