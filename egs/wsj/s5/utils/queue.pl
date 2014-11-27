@@ -82,10 +82,6 @@ sub print_usage() {
    "and change its behavior.  Otherwise it uses qstat to work out when the job finished\n" .
    "Options:\n" .
    "  --config <config-file> (default: $config)\n" .
-   "  --queue-opts <options> (standard options to qsub or whatever\n" .
-   "                          other command-line program that will be \n" .
-   "                          given in the script, e.g.  -l arch=*64*\n" .
-   "                          whatever other things...)\n" .
    "  --mem <mem-requirement> (e.g. --mem 2G, --mem 500M, \n" .
    "                           also support K and numbers mean bytes)\n" .
    "  --num-threads <num-threads> (default: $num_threads)\n" .
@@ -160,14 +156,16 @@ if (exists $cli_options{"config"}) {
   $config = $cli_options{"config"};
 }  
 
-my $default_config_file = "# Default configuration\n" .
-"command qsub -v PATH -cwd -S /bin/bash -j y -l arch=*64*\n" .
-"option mem=* -l mem_free=\\\$0,ram_free=\\\$0\n" .
-"option num_threads=* -pe smp \\\$0\n" .
-"option max_jobs_run=* -tc \\\$0\n" .
-"default gpu=0\n" .
-"option gpu=0 -q all.q\n" .
-"option gpu=* -l gpu=\\\$0 -q g.q\n";
+my $default_config_file = <<'EOF';
+# Default configuration
+command qsub -v PATH -cwd -S /bin/bash -j y -l arch=*64*
+option mem=* -l mem_free=\$0,ram_free=\$0
+option num_threads=* -pe smp \$0
+option max_jobs_run=* -tc \$0
+default gpu=0
+option gpu=0 -q all.q
+option gpu=* -l gpu=\$0 -q g.q
+EOF
 
 # Here the configuration options specified by the user on the command line
 # (e.g. --mem 2G) are converted to options to the qsub system as defined in
