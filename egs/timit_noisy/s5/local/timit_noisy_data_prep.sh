@@ -19,6 +19,8 @@ fi
 timit_dir=$1
 prefix=$2
 
+rate_opts=
+
 if [ $rate != "16k" ]; then
   rate_opts=" rate $rate"
 fi

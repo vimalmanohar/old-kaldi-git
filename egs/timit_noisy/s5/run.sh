@@ -27,8 +27,8 @@ cmvn_opts=
 
 rate=16k
 
-exp=exp_multi
-train=data/train_multi
+exp=exp_clean
+train=data/train_clean
 dev=data/dev_clean
 test=data/test_clean
 
@@ -43,7 +43,7 @@ timit=/home/vmanoha1/workspace_tfmask/data/timit/TIMIT
 
 # Prepare timit data
 if [ ! -f data/local/data/timit.done ]; then
-  local/timit_data_prep.sh $timit
+  local/timit_data_prep.sh $timit || exit 1
   touch data/local/data/timit.done
 fi
 
@@ -58,7 +58,7 @@ if [ ! -f data/local/data/timit_noisy.clean.done ]; then
   # This just prepares the data from the clean version of the timit_noisy
   # corpus. This is actually just the timit corpus but with wav files instead of
   # sph files.
-  local/timit_noisy_data_prep.sh --rate ${rate} ${timit}_clean clean  
+  local/timit_noisy_data_prep.sh --rate ${rate} ${timit}_clean clean || exit 1
   touch data/local/data/timit_noisy.clean.done
 fi
 
@@ -70,21 +70,21 @@ while read noise_type <&3; do
     snr=`echo $snr | perl -pe 'chomp; $_ =~ s/#.*//'`
     [ -z "$snr" ] && continue 
     if [ ! -f data/local/data/timit_noisy.${noise_type}_snr_$snr.done ]; then
-      local/timit_noisy_data_prep.sh --rate ${rate} ${timit}_noisy_${noise_type}_snr_${snr} noisy_${noise_type}_snr_${snr}
+      local/timit_noisy_data_prep.sh --rate ${rate} ${timit}_noisy_${noise_type}_snr_${snr} noisy_${noise_type}_snr_${snr} || exit 1
       touch data/local/data/timit_noisy.${noise_type}_snr_$snr.done
     fi
   done 4< conf/snr.list
 done 3< conf/noisetypes.list
 
 if [ ! -f data/lang/.done ]; then
-  local/timit_prepare_dict.sh
+  local/timit_prepare_dict.sh || exit 1
 
   # Caution below: we insert optional-silence with probability 0.5, which is the
   # default, but this is probably not appropriate for this setup, since silence
   # appears also as a word in the dictionary and is scored.  We could stop this
   # by using the option --sil-prob 0.0, but apparently this makes results worse.
   utils/prepare_lang.sh --position-dependent-phones false --num-sil-states 3 \
-    data/local/dict "sil" data/local/lang_tmp data/lang
+    data/local/dict "sil" data/local/lang_tmp data/lang || exit 1
   touch data/lang/.done
 fi
 
@@ -93,12 +93,12 @@ fi
 ###############################################################################
 
 if [ ! -f data/.timit.format.done ]; then
-  local/timit_format_data.sh
+  local/timit_format_data.sh || exit 1
   touch data/.timit.format.done
 fi
 
 if [ ! -f data/.timit_noisy.format.clean.done ]; then
-  local/timit_noisy_format_data.sh --prefix clean
+  local/timit_noisy_format_data.sh --prefix clean || exit 1
   touch data/.timit_noisy.format.clean.done
 fi
 
@@ -109,11 +109,11 @@ while read noise_type <&3; do
     snr=`echo $snr | perl -pe 'chomp; $_ =~ s/#.*//'`
     [ -z "$snr" ] && continue 
     if [ ! -f data/.timit_noisy.format.${noise_type}_snr_$snr.done ]; then
-      local/timit_noisy_format_data.sh --prefix noisy_${noise_type}_snr_${snr}
+      local/timit_noisy_format_data.sh --prefix noisy_${noise_type}_snr_${snr} || exit 1
       touch data/.timit_noisy.format.${noise_type}_snr_$snr.done
     fi
-  done 4< snr.list
-done 3< noisetypes.list
+  done 4< conf/snr.list
+done 3< conf/noisetypes.list
 
 echo ============================================================================
 echo "         MFCC Feature Extration & CMVN for Training and Test set           "
@@ -130,8 +130,8 @@ for x in train dev test; do
   if [ ! -f data/$x/.mfcc.done ]; then
     steps/make_mfcc.sh --cmd "$train_cmd" --nj $nj \
       data/$x $exp/make_mfcc/$x $mfccdir
-    steps/compute_cmvn_stats.sh data/$x $exp/make_mfcc/$x $mfccdir
-    utils/fix_data_dir.sh 
+    steps/compute_cmvn_stats.sh data/$x $exp/make_mfcc/$x $mfccdir || exit 1
+    utils/fix_data_dir.sh data/$x
     touch data/$x/.mfcc.done
   fi
 done
@@ -145,7 +145,7 @@ while read noise_type <&3; do
         steps/make_mfcc.sh --cmd "$train_cmd" --nj $nj \
           data/$x $exp/make_mfcc/$x $mfccdir
         steps/compute_cmvn_stats.sh data/$x $exp/make_mfcc/$x $mfccdir
-        utils/fix_data_dir.sh 
+        utils/fix_data_dir.sh data/$x
         touch data/$x/.mfcc.done
       fi
     done
@@ -219,13 +219,13 @@ if [ ! -f $exp/tri2/.done ]; then
   touch $exp/tri2/.done
 fi
 
-utils/mkgraph.sh data/lang_test_bg $exp/tri2 $exp/tri2/graph
-
-if [ ! -f $exp/tri2/decode_${devid}/.done ]; then
-  steps/decode.sh --nj "$decode_nj" --cmd "$decode_cmd" \
-    $exp/tri2/graph $dev $exp/tri2/decode_${devid}
-  touch $exp/tri2/decode_${devid}/.done 
-fi
+#utils/mkgraph.sh data/lang_test_bg $exp/tri2 $exp/tri2/graph
+#
+#if [ ! -f $exp/tri2/decode_${devid}/.done ]; then
+#  steps/decode.sh --nj "$decode_nj" --cmd "$decode_cmd" \
+#    $exp/tri2/graph $dev $exp/tri2/decode_${devid}
+#  touch $exp/tri2/decode_${devid}/.done 
+#fi
 
 #steps/decode.sh --nj "$decode_nj" --cmd "$decode_cmd" \
 # $exp/tri2/graph $test $exp/tri2/decode_${testid}
@@ -268,6 +268,8 @@ if [ ! -f $exp/tri3_ali/.done ]; then
   touch $exp/tri3_ali/.done
 fi
 
+echo "Basic Models done!" && exit 0
+
 echo ============================================================================
 echo "                        SGMM2 Training & Decoding                         "
 echo ============================================================================
@@ -299,8 +301,6 @@ if [ ! -f $exp/sgmm2_4/decode_${testid}/.done ]; then
     $exp/sgmm2_4/decode_${testid}
   touch $exp/sgmm2_4/decode_${testid}/.done
 fi
-
-echo "Basic Models done!" && exit 0
 
 
 echo ============================================================================
