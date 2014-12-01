@@ -582,6 +582,25 @@ class CuMatrix: public CuMatrixBase<Real> {
                         Real *tot_objf,
                         Real *tot_weight);
 
+  /// This is similar to the function above, but uses the squared error as the
+  /// objective instead of cross-entropy.
+  /// Here, A is interpreted as a matrix of probabilities, and "elements"
+  /// as a list
+  /// of posteriors (possibly zero-one), and "*this" as a matrix of derivatives
+  /// w.r.t. the log-probs.
+  /// This function does: for each element { row, column, weight } indexed i in
+  /// the vector "elements", let x(i) = A(row(i), column(i)); then it does
+  /// (*this)(row(i), column(i)) += weight(i) - x(i), and
+  /// *tot_objf = \sum_i 0.5 * (weight(i) - x(i))^2, and
+  /// *tot_weight = \sum_i weight(i)
+  /// Preconditions: A must be strictly positive, and no (row, column) pair
+  /// may be repeated within "elements"
+  void CompObjfAndDerivSqrdErr(const std::vector<MatrixElement<Real> > &elements,
+                        int32 target_dim,
+                        const CuMatrix<Real> &A,
+                        Real *tot_objf,
+                        Real* tot_weight);
+
  private:
   void Destroy();
 };

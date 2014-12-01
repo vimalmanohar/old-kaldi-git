@@ -40,8 +40,12 @@ int main(int argc, char *argv[]) {
         "\n"
         "Usage:  nnet-compute-prob [options] <model-in> <training-examples-in>\n"
         "e.g.: nnet-compute-prob 1.nnet ark:valid.egs\n";
-    
+ 
+    NnetUpdaterConfig config;
+
     ParseOptions po(usage);
+    
+    config.Register(&po);
 
     po.Read(argc, argv);
     
@@ -70,7 +74,7 @@ int main(int argc, char *argv[]) {
     for (; !example_reader.Done(); example_reader.Next(), num_examples++) {
       if (examples.size() == 1000) {
         double accuracy;
-        tot_like += ComputeNnetObjf(am_nnet.GetNnet(), examples, &accuracy);
+        tot_like += ComputeNnetObjf(am_nnet.GetNnet(), examples, config, &accuracy);
         tot_accuracy += accuracy;
         tot_weight += TotalNnetTrainingWeight(examples);
         examples.clear();
@@ -83,7 +87,7 @@ int main(int argc, char *argv[]) {
     }
     if (!examples.empty()) {
       double accuracy;
-      tot_like += ComputeNnetObjf(am_nnet.GetNnet(), examples, &accuracy);
+      tot_like += ComputeNnetObjf(am_nnet.GetNnet(), examples, config, &accuracy);
       tot_accuracy += accuracy;      
       tot_weight += TotalNnetTrainingWeight(examples);
     }

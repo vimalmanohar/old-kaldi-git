@@ -48,7 +48,8 @@ static void CombineNnets(const Vector<BaseFloat> &scale_params,
 /// or (#models) for the average of all of them.
 static int32 GetInitialModel(
     const std::vector<NnetExample> &validation_set,
-    const std::vector<Nnet> &nnets) {
+    const std::vector<Nnet> &nnets,
+    const NnetUpdaterConfig &updater_config) {
   int32 minibatch_size = 1024;
   int32 num_nnets = static_cast<int32>(nnets.size());
   KALDI_ASSERT(!nnets.empty());
@@ -58,7 +59,7 @@ static int32 GetInitialModel(
   Vector<BaseFloat> objfs(nnets.size());
   for (int32 n = 0; n < num_nnets; n++) {
     BaseFloat objf = ComputeNnetObjf(nnets[n], validation_set,
-                                     minibatch_size) / tot_frames;
+                                     minibatch_size, updater_config) / tot_frames;
     
     if (n == 0 || objf > best_objf) {
       best_objf = objf;
@@ -76,7 +77,7 @@ static int32 GetInitialModel(
     Nnet average_nnet;
     CombineNnets(scale_params, nnets, &average_nnet);
     BaseFloat objf = ComputeNnetObjf(average_nnet, validation_set,
-                                     minibatch_size) / tot_frames;
+                                     minibatch_size, updater_config) / tot_frames;
     KALDI_LOG << "Objf with all neural nets averaged is " << objf;
     if (objf > best_objf) {
       return num_nnets;
@@ -97,7 +98,7 @@ static void GetInitialScaleParams(
   int32 initial_model = combine_config.initial_model,
       num_nnets = static_cast<int32>(nnets.size());
   if (initial_model < 0 || initial_model > num_nnets)
-    initial_model = GetInitialModel(validation_set, nnets);
+    initial_model = GetInitialModel(validation_set, nnets, combine_config.updater_config);
   
   KALDI_ASSERT(initial_model >= 0 && initial_model <= num_nnets);
   int32 num_uc = nnets[0].NumUpdatableComponents();
@@ -126,6 +127,7 @@ static double ComputeObjfAndGradient(
     const Vector<double> &scale_params,
     const std::vector<Nnet> &nnets,
     bool debug,
+    const NnetUpdaterConfig &updater_config,
     Vector<double> *gradient) {
 
   Vector<BaseFloat> scale_params_float(scale_params);
@@ -142,6 +144,7 @@ static double ComputeObjfAndGradient(
   double ans = ComputeNnetGradient(nnet_combined,
                                    validation_set,
                                    batch_size,
+                                   updater_config,
                                    &nnet_gradient);
 
   double tot_frames = validation_set.size();
@@ -179,6 +182,7 @@ static double ComputeObjfAndGradient(
                                               scale_params_temp,
                                               nnets,
                                               false,
+                                              updater_config,
                                               NULL);
       manual_gradient(i) = (new_ans - ans) / delta;
     }
@@ -223,6 +227,7 @@ void CombineNnets(const NnetCombineConfig &combine_config,
                                   scale_params,
                                   nnets,
                                   combine_config.test_gradient,
+                                  combine_config.updater_config,
                                   &gradient);
 
     KALDI_VLOG(2) << "Iteration " << i << " scale-params = " << scale_params

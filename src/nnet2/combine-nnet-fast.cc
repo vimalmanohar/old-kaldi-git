@@ -34,15 +34,16 @@ class FisherComputationClass: public MultiThreadable {
                          const std::vector<Nnet> &nnets,
                          const std::vector<NnetExample> &egs,
                          int32 minibatch_size,
+                         const NnetUpdaterConfig &updater_config,
                          SpMatrix<double> *scatter):
       nnet_(nnet), nnets_(nnets), egs_(egs), minibatch_size_(minibatch_size),
-      scatter_ptr_(scatter) { } // This initializer is only used to create a
+      scatter_ptr_(scatter), updater_config_(updater_config) { } // This initializer is only used to create a
   // temporary version of the object; the next initializer is used to
   // create the separate versions for the parallel jobs.
   
   FisherComputationClass(const FisherComputationClass &other):
       nnet_(other.nnet_), nnets_(other.nnets_), egs_(other.egs_),
-      minibatch_size_(other.minibatch_size_), scatter_ptr_(other.scatter_ptr_) {
+      minibatch_size_(other.minibatch_size_), scatter_ptr_(other.scatter_ptr_), updater_config_(other.updater_config_) {
     scatter_.Resize(nnets_.size() * nnet_.NumUpdatableComponents());  }
   
   void operator () () {
@@ -59,7 +60,7 @@ class FisherComputationClass: public MultiThreadable {
       nnet_gradient.SetZero(is_gradient);
       std::vector<NnetExample> minibatch(egs_.begin() + offset,
                                                  egs_.begin() + offset + length);
-      DoBackprop(nnet_, minibatch, &nnet_gradient);
+      DoBackprop(nnet_, minibatch, updater_config_, &nnet_gradient);
       Vector<double> gradient(nnets_.size() * nnet_.NumUpdatableComponents());
       int32 i = 0;
       for (int32 n = 0; n < static_cast<int32>(nnets_.size()); n++) {
@@ -95,6 +96,8 @@ class FisherComputationClass: public MultiThreadable {
                          // regular minibatch size.)
   SpMatrix<double> *scatter_ptr_;
   SpMatrix<double> scatter_; // Local accumulation of the scatter.  
+  
+  NnetUpdaterConfig updater_config_;
 };
 
 
@@ -225,6 +228,7 @@ void FastNnetCombiner::ComputePreconditioner() {
     // The next line just initializes an "example" object.
     FisherComputationClass fc(nnet, nnets_, egs_,
                               config_.fisher_minibatch_size,
+                              config_.updater_config,
                               &F);
 
     // Setting num_threads to zero if config_.num_threads == 1
@@ -306,7 +310,7 @@ double FastNnetCombiner::ComputeObjfAndGradient(
   nnet_gradient.SetZero(is_gradient);
   double tot_weight = 0.0;
   double objf = DoBackpropParallel(nnet, config_.minibatch_size, config_.num_threads,
-                                   egs_, &tot_weight, &nnet_gradient) / egs_.size();
+                                   egs_, config_.updater_config, &tot_weight, &nnet_gradient) / egs_.size();
   
   // raw_gradient is gradient in non-preconditioned space.
   Vector<double> raw_gradient(params_.Dim());
@@ -389,6 +393,7 @@ int32 FastNnetCombiner::GetInitialModel(
     double num_frames;
     double objf = ComputeNnetObjfParallel(nnets[n], config_.minibatch_size,
                                           config_.num_threads, validation_set,
+                                          config_.updater_config,
                                           &num_frames);
     KALDI_ASSERT(num_frames != 0);
     objf /= num_frames;
@@ -413,6 +418,7 @@ int32 FastNnetCombiner::GetInitialModel(
     double num_frames;
     double objf = ComputeNnetObjfParallel(average_nnet, config_.minibatch_size,
                                           config_.num_threads, validation_set,
+                                          config_.updater_config,
                                           &num_frames);
     objf /= num_frames;
     KALDI_LOG << "Objf with all neural nets averaged is " << objf;

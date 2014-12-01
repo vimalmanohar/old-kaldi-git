@@ -63,6 +63,7 @@ static BaseFloat ComputeObjfAndGradient(
     const Vector<double> &scale_params,
     const Nnet &orig_nnet,
     const Nnet &direction,
+    const NnetUpdaterConfig &updater_config,
     Vector<double> *gradient) {
   
   Vector<BaseFloat> scale_params_float(scale_params);
@@ -79,6 +80,7 @@ static BaseFloat ComputeObjfAndGradient(
   BaseFloat ans = ComputeNnetGradient(nnet_combined,
                                       validation_set,
                                       batch_size,
+                                      updater_config,
                                       &nnet_gradient);
 
   BaseFloat tot_count = validation_set.size();
@@ -121,6 +123,7 @@ void CombineNnetsA(const NnetCombineAconfig &config,
                                      scale_params,
                                      nnets[0],
                                      direction,
+                                     config.updater_config,
                                      &gradient);
   KALDI_LOG << "Objective function at old parameters is "
             << zero_objf;
@@ -142,6 +145,7 @@ void CombineNnetsA(const NnetCombineAconfig &config,
                                   scale_params,
                                   nnets[0],
                                   direction,
+                                  config.updater_config,
                                   &gradient);
 
     KALDI_VLOG(2) << "Iteration " << i << " scale-params = " << scale_params
@@ -181,6 +185,7 @@ void CombineNnetsA(const NnetCombineAconfig &config,
                                   scale_params,
                                   nnets[0],
                                   direction,
+                                  config.updater_config,
                                   &gradient);
 
     KALDI_LOG << "Combining nnets, after overshooting, validation objf changed "

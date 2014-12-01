@@ -43,6 +43,8 @@ struct NnetCombineConfig {
   
   BaseFloat initial_impr;
   bool test_gradient;
+  NnetUpdaterConfig updater_config;
+  
   NnetCombineConfig(): initial_model(-1), num_bfgs_iters(30),
                        initial_impr(0.01),
                        test_gradient(false) { }
@@ -58,7 +60,9 @@ struct NnetCombineConfig {
                  "we aim for on the first iteration.");
     po->Register("test-gradient", &test_gradient, "If true, activate code that "
                  "tests the gradient is accurate.");
+    updater_config.Register(po);
   }  
+  
 };
 
 void CombineNnets(const NnetCombineConfig &combine_config,

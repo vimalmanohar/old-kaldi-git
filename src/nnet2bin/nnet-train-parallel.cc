@@ -45,6 +45,7 @@ int main(int argc, char *argv[]) {
     bool zero_stats = true;
     int32 minibatch_size = 1024;
     int32 srand_seed = 0;
+    NnetUpdaterConfig updater_config;
     
     ParseOptions po(usage);
     po.Register("binary", &binary_write, "Write output in binary mode");
@@ -57,6 +58,7 @@ int main(int argc, char *argv[]) {
                 "implementation of BLAS, the actual number of threads may be larger.]");
     po.Register("minibatch-size", &minibatch_size, "Number of examples to use for "
                 "each minibatch during training.");
+    updater_config.Register(&po);
     
     po.Read(argc, argv);
     srand(srand_seed);
@@ -90,6 +92,7 @@ int main(int argc, char *argv[]) {
     DoBackpropParallel(am_nnet.GetNnet(),
                        minibatch_size,
                        &example_reader,
+                       updater_config,
                        &num_examples,
                        &(am_nnet.GetNnet()));
     

@@ -26,12 +26,11 @@ namespace nnet2 {
 
 
 NnetUpdater::NnetUpdater(const Nnet &nnet,
+                         const NnetUpdaterConfig &config,
                          Nnet *nnet_to_update):
-    nnet_(nnet), nnet_to_update_(nnet_to_update) {
+    nnet_(nnet), config_(config), nnet_to_update_(nnet_to_update) {
 }
  
-
-
 void NnetUpdater::FormatInput(const std::vector<NnetExample> &data) {
 
   forward_data_.resize(nnet_.NumComponents() + 1);
@@ -150,7 +149,12 @@ double NnetUpdater::ComputeObjfAndDeriv(
   if (tot_accuracy != NULL)
     *tot_accuracy = ComputeTotAccuracy(data);
   
-  deriv->CompObjfAndDeriv(sv_labels, output, &tot_objf, &tot_weight);
+  if (config_.obj_func == "CrossEntropy")
+    deriv->CompObjfAndDeriv(sv_labels, output, &tot_objf, &tot_weight);
+  else if (config_.obj_func == "SquaredError")
+    deriv->CompObjfAndDerivSqrdErr(sv_labels, config_.target_dim, output, &tot_objf, &tot_weight);
+  else
+    KALDI_ERR << "Unknown objective function" << config_.obj_func;
   
   KALDI_VLOG(4) << "Objective function is " << (tot_objf/tot_weight) << " over "
                 << tot_weight << " samples (weighted).";
@@ -257,19 +261,21 @@ BaseFloat TotalNnetTrainingWeight(const std::vector<NnetExample> &egs) {
 
 double ComputeNnetObjf(const Nnet &nnet,
                        const std::vector<NnetExample> &examples,
+                       const NnetUpdaterConfig &config,
                        double *tot_accuracy) {
-  NnetUpdater updater(nnet, NULL);
+  NnetUpdater updater(nnet, config, NULL);
   return updater.ComputeForMinibatch(examples, tot_accuracy);
 }
 
 double DoBackprop(const Nnet &nnet,
                   const std::vector<NnetExample> &examples,
+                  const NnetUpdaterConfig &config,
                   Nnet *nnet_to_update,
                   double *tot_accuracy) {
   if (nnet_to_update == NULL)
-    return ComputeNnetObjf(nnet, examples, tot_accuracy);
+    return ComputeNnetObjf(nnet, examples, config, tot_accuracy);
   try {
-    NnetUpdater updater(nnet, nnet_to_update);
+    NnetUpdater updater(nnet, config, nnet_to_update);
     return updater.ComputeForMinibatch(examples, tot_accuracy);
   } catch (...) {
     KALDI_LOG << "Error doing backprop, nnet info is: " << nnet.Info();
@@ -303,6 +309,7 @@ double ComputeNnetGradient(
     const Nnet &nnet,
     const std::vector<NnetExample> &validation_set,
     int32 batch_size,
+    const NnetUpdaterConfig &config,
     Nnet *gradient) {
   bool treat_as_gradient = true;
   gradient->SetZero(treat_as_gradient);
@@ -321,6 +328,7 @@ double ComputeNnetGradient(
     }
     tot_objf += DoBackprop(nnet,
                            batch,
+                           config,
                            gradient);
   }
   return tot_objf / validation_set.size();
@@ -330,6 +338,7 @@ double ComputeNnetObjf(
     const Nnet &nnet,
     const std::vector<NnetExample> &validation_set,
     int32 batch_size,
+    const NnetUpdaterConfig &config,
     double *tot_accuracy) {
   double tot_accuracy_tmp;
   if (tot_accuracy)
@@ -347,7 +356,7 @@ double ComputeNnetObjf(
          i++) {
       batch.push_back(validation_set[i]);
     }
-    tot_objf += ComputeNnetObjf(nnet, batch,
+    tot_objf += ComputeNnetObjf(nnet, batch, config,
                                 tot_accuracy != NULL ? &tot_accuracy_tmp : NULL);
     if (tot_accuracy)
       *tot_accuracy += tot_accuracy_tmp;
