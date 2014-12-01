@@ -18,6 +18,9 @@
 # Call this script from one level above, e.g. from the s3/ directory.  It puts
 # its output in data/local/.
 
+set -e
+set -o pipefail
+
 # The parts of the output of this that will be needed are
 # [in data/local/dict/ ]
 # lexicon.txt
@@ -69,9 +72,11 @@ cat $dir/nonsilence_phones.txt | perl -e 'while(<>){ foreach $p (split(" ", $_))
 
   cut -d' ' -f2- $srcdir/train.txt | sed -e 's:^:<s> :' -e 's:$: </s>:' \
     > $srcdir/lm_train.txt
+
+  rm $tmpdir/lm_phone_bg.ilm.gz || true
   build-lm.sh -i $srcdir/lm_train.txt -n 2 -o $tmpdir/lm_phone_bg.ilm.gz
 
-  compile-lm $tmpdir/lm_phone_bg.ilm.gz --text yes /dev/stdout | \
-  grep -v unk | gzip -c > $lmdir/lm_phone_bg.arpa.gz 
+  compile-lm $tmpdir/lm_phone_bg.ilm.gz -t=yes /dev/stdout | \
+    grep -v unk | gzip -c > $lmdir/lm_phone_bg.arpa.gz 
 
 echo "Dictionary & language model preparation succeeded"
