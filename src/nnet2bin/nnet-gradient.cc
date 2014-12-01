@@ -43,6 +43,7 @@ int main(int argc, char *argv[]) {
     
     bool binary_write = true;
     int32 minibatch_size = 1024;
+    NnetUpdaterConfig updater_config;
     
     ParseOptions po(usage);
     po.Register("binary", &binary_write, "Write output in binary mode");
@@ -51,6 +52,7 @@ int main(int argc, char *argv[]) {
                 "implementation of BLAS, the actual number of threads may be larger.]");
     po.Register("minibatch-size", &minibatch_size, "Number of examples to use for "
                 "each minibatch during training.");
+    updater_config.Register(&po);
     
     po.Read(argc, argv);
     
@@ -86,6 +88,7 @@ int main(int argc, char *argv[]) {
     DoBackpropParallel(am_nnet.GetNnet(),
                        minibatch_size,
                        &example_reader,
+                       updater_config,
                        &num_examples,
                        &(am_gradient.GetNnet()));
     // This function will have produced logging output, so we have no

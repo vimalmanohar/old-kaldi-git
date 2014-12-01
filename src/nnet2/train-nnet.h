@@ -31,6 +31,7 @@ namespace nnet2 {
 struct NnetSimpleTrainerConfig {
   int32 minibatch_size;
   int32 minibatches_per_phase;
+  NnetUpdaterConfig updater_config;
   
   NnetSimpleTrainerConfig(): minibatch_size(500),
                              minibatches_per_phase(50) { }
@@ -41,6 +42,7 @@ struct NnetSimpleTrainerConfig {
     po->Register("minibatches-per-phase", &minibatches_per_phase,
                  "Number of minibatches to wait before printing training-set "
                  "objective.");
+    updater_config.Register(po);
   }  
 };
 

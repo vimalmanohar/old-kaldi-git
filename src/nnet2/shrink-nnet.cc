@@ -26,6 +26,7 @@ static BaseFloat ComputeObjfAndGradient(
     const std::vector<NnetExample> &validation_set,
     const Vector<double> &log_scale_params,
     const Nnet &nnet,
+    const NnetUpdaterConfig &config,
     Vector<double> *gradient) {
   Vector<BaseFloat> scale_params(log_scale_params);
   scale_params.ApplyExp();
@@ -41,6 +42,7 @@ static BaseFloat ComputeObjfAndGradient(
   BaseFloat ans = ComputeNnetGradient(nnet_scaled,
                                       validation_set,
                                       batch_size,
+                                      config,
                                       &nnet_gradient);
 
   BaseFloat tot_count = validation_set.size();
@@ -88,6 +90,7 @@ void ShrinkNnet(const NnetShrinkConfig &shrink_config,
     log_scale.CopyFromVec(lbfgs.GetProposedValue());
     objf = ComputeObjfAndGradient(validation_set, log_scale,
                                   *nnet,
+                                  shrink_config.updater_config,
                                   &gradient);
 
     KALDI_VLOG(2) << "log-scale = " << log_scale << ", objf = " << objf

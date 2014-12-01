@@ -36,6 +36,25 @@ namespace nnet2 {
    whole utterances.
 */
 
+  struct NnetUpdaterConfig {
+  std::string obj_func;
+  int32 target_dim;
+
+  NnetUpdaterConfig(): obj_func("CrossEntropy"),
+                       target_dim(1) {}
+
+  void Register (OptionsItf *po) {
+    po->Register("obj-func", &obj_func,
+        "Objective function to be used (CrossEntropy/CrossEntropySum/SquaredError)");
+    po->Register("target-dim", &target_dim,
+        "Dimension of target layer. Used only with CrossEntropySum or SquaredError objective functions");
+
+    if (obj_func == "CrossEntropySum")
+      KALDI_ERR << "CrossEntropySum is not yet supported!";
+  }
+};
+
+
 class NnetEnsembleTrainer;
 
 // This class NnetUpdater contains functions for updating the neural net or
@@ -50,6 +69,7 @@ class NnetUpdater {
   // for a held-out set and don't want to update the model.  Note: nnet_to_update
   // may be NULL if you don't want do do backprop.
   NnetUpdater(const Nnet &nnet,
+              const NnetUpdaterConfig &config,
               Nnet *nnet_to_update);
   
   /// Does the entire forward and backward computation for this minbatch.
@@ -101,13 +121,13 @@ class NnetUpdater {
   double ComputeTotAccuracy(const std::vector<NnetExample> &data) const;
 
   const Nnet &nnet_;
+  NnetUpdaterConfig config_;
   Nnet *nnet_to_update_;
   int32 num_chunks_; // same as the minibatch size.
   std::vector<ChunkInfo> chunk_info_out_; 
   
   std::vector<CuMatrix<BaseFloat> > forward_data_; // The forward data
   // for the outputs of each of the components.
-
 };
 
 
@@ -134,6 +154,7 @@ void FormatNnetInput(const Nnet &nnet,
 /// accuracy.
 double DoBackprop(const Nnet &nnet,
                   const std::vector<NnetExample> &examples,
+                  const NnetUpdaterConfig &config,
                   Nnet *nnet_to_update,
                   double *tot_accuracy = NULL);
 
@@ -162,6 +183,7 @@ BaseFloat TotalNnetTrainingWeight(const std::vector<NnetExample> &egs);
 /// accuracy.
 double ComputeNnetObjf(const Nnet &nnet,
                        const std::vector<NnetExample> &examples,
+                       const NnetUpdaterConfig &config,
                        double *tot_accuracy= NULL);
 
 /// This version of ComputeNnetObjf breaks up the examples into
@@ -172,6 +194,7 @@ double ComputeNnetObjf(const Nnet &nnet,
 double ComputeNnetObjf(const Nnet &nnet,                          
                        const std::vector<NnetExample> &examples,
                        int32 minibatch_size,
+                       const NnetUpdaterConfig &config,
                        double *tot_accuracy= NULL);
 
 
@@ -182,6 +205,7 @@ double ComputeNnetGradient(
     const Nnet &nnet,
     const std::vector<NnetExample> &examples,
     int32 batch_size,
+    const NnetUpdaterConfig &config,
     Nnet *gradient);
 
 

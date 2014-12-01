@@ -48,6 +48,7 @@ namespace nnet2 {
 double DoBackpropParallel(const Nnet &nnet,
                           int32 minibatch_size,
                           SequentialNnetExampleReader *example_reader,
+                          const NnetUpdaterConfig &config,
                           double *tot_weight,
                           Nnet *nnet_to_update);
 
@@ -58,6 +59,7 @@ double DoBackpropParallel(const Nnet &nnet,
                           int32 minibatch_size,
                           int32 num_threads,
                           const std::vector<NnetExample> &examples,
+                          const NnetUpdaterConfig &config,
                           double *num_frames,
                           Nnet *nnet_to_update);
 
@@ -73,9 +75,10 @@ inline double ComputeNnetObjfParallel(
     int32 minibatch_size,
     int32 num_threads,
     const std::vector<NnetExample> &examples,
+    const NnetUpdaterConfig &config,
     double *num_frames) {
   return DoBackpropParallel(nnet, minibatch_size, num_threads,
-                            examples, num_frames, NULL);
+                            examples, config, num_frames, NULL);
 }
 
 

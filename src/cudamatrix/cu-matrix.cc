@@ -1200,6 +1200,59 @@ void CuMatrix<Real>::CompObjfAndDeriv(const std::vector<MatrixElement<Real> >& s
   }
 }
 
+template<typename Real>
+void CuMatrix<Real>::CompObjfAndDerivSqrdErr(const std::vector<MatrixElement<Real> >& sv_labels, 
+                                      int32 target_dim,
+                                      const CuMatrix<Real> &output,
+                                      Real *tot_objf, Real* tot_weight) {
+  { // check the input.
+    typedef typename std::vector<MatrixElement<Real> >::const_iterator Iter;
+    MatrixIndexT num_rows = this->num_rows_, num_cols = this->num_cols_;
+    for (Iter iter = sv_labels.begin(); iter != sv_labels.end(); ++iter) {
+      KALDI_ASSERT(iter->row < num_rows && iter->row >= 0 &&
+                     iter->column < num_cols && iter->column >= 0);
+    }
+  }
+  
+ # if HAVE_CUDA == 1
+  if (CuDevice::Instantiate().Enabled()) {
+    if (sv_labels.empty()) {
+      KALDI_WARN << "Empty supervision labels";
+      *tot_objf = 0.0;
+      *tot_weight = 0.0;
+      return;
+    }
+    void *addr = CuDevice::Instantiate().Malloc(sv_labels.size() * sizeof(MatrixElement<Real>));
+    CU_SAFE_CALL(cudaMemcpy(addr, sv_labels.data(), sv_labels.size() * sizeof(MatrixElement<Real>), cudaMemcpyHostToDevice));
+    Timer tim;
+    CuVector<Real> tmp(2, kUndefined);
+    //tmp(0) = 0; tmp(1) = 0;
+    int dimBlock(CU1DBLOCK);
+    int dimGrid = 1;// only 1 block here. we have loops in each thread  //(n_blocks(dim_, CU1DBLOCK));
+    cuda_comp_obj_deriv_sqrd_err(dimGrid, dimBlock, (MatrixElement<Real>*)addr, sv_labels.size(), target_dim, output.Data(), output.Dim(), this->Data(), this->Dim(), tmp.Data());
+    Vector<Real> tmp_cpu(tmp);
+    *tot_objf = tmp_cpu(0);
+    *tot_weight = tmp_cpu(1);
+    CuDevice::Instantiate().Free(addr);
+    CuDevice::Instantiate().AccuProfile("Comp_Obj_Deriv_Squared_Error", tim.Elapsed());
+  } else
+#endif
+  {
+    for(int32 i = 0; i<sv_labels.size(); i++) {
+      int32 m = sv_labels[i].row, label = sv_labels[i].column;
+      Real weight = sv_labels[i].weight;
+      // KALDI_ASSERT(label >= 0 && label < nnet_.OutputDim());
+      Real this_prob = output(m, label);
+      if (this_prob < 1e-20) this_prob = 1e-20;
+      // KALDI_ASSERT(this_prob >= 0.99e-20); // we floored to 1.0e-20 in SoftmaxLayer.
+      *tot_objf += -(weight - this_prob) * (weight - this_prob) / target_dim;
+      *tot_weight += 1.0 / target_dim;
+      (*this)(m, label) += 2 * ( weight - this_prob ) / target_dim;
+
+    }
+  }
+}
+
 template<typename Real> // Y->this, X->src
 void CuMatrixBase<Real>::ApplySoftMaxPerRow(const CuMatrixBase<Real> &src) {
   KALDI_ASSERT(SameDim(*this, src));

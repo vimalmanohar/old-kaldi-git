@@ -57,7 +57,7 @@ void NnetEnsembleTrainer::TrainOneMinibatch() {
   std::vector<CuMatrix<BaseFloat> > post_mat;
   post_mat.resize(nnet_ensemble_.size());
   for (int32 i = 0; i < nnet_ensemble_.size(); i++) {
-    updater_ensemble_.push_back(new NnetUpdater(*(nnet_ensemble_[i]), nnet_ensemble_[i]));
+    updater_ensemble_.push_back(new NnetUpdater(*(nnet_ensemble_[i]), config_.updater_config, nnet_ensemble_[i]));
     updater_ensemble_[i]->FormatInput(buffer_);
     updater_ensemble_[i]->Propagate();
     // posterior matrix, storing output of one net.

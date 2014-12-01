@@ -42,6 +42,7 @@ struct NnetCombineAconfig {
   BaseFloat max_learning_rate_factor; // 2.0 by default.
   BaseFloat min_learning_rate; // 0.0001 by default; we don't allow learning rate to go below
   // this, mainly because it would lead to roundoff problems.
+  NnetUpdaterConfig updater_config;
   
   NnetCombineAconfig(): num_bfgs_iters(15), initial_step(0.1),
                         valid_impr_thresh(0.5), overshoot(1.8),
@@ -50,6 +51,7 @@ struct NnetCombineAconfig {
                         min_learning_rate(0.0001) { }
   
   void Register(OptionsItf *po) {
+    updater_config.Register(po);
     po->Register("num-bfgs-iters", &num_bfgs_iters, "Maximum number of function "
                  "evaluations for BFGS to use when optimizing combination weights");
     po->Register("initial-step", &initial_step, "Parameter in the optimization, "

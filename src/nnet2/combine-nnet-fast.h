@@ -64,6 +64,7 @@ struct NnetCombineFastConfig {
   // the gradient computation.
   int32 max_lbfgs_dim;
   BaseFloat regularizer;
+  NnetUpdaterConfig updater_config;
   
   NnetCombineFastConfig(): initial_model(-1), num_lbfgs_iters(10),
                            num_threads(1), initial_impr(0.01), fisher_floor(1.0e-20),
@@ -71,6 +72,7 @@ struct NnetCombineFastConfig {
                            max_lbfgs_dim(10), regularizer(0.0) {}
   
   void Register(OptionsItf *po) {
+    updater_config.Register(po);
     po->Register("initial-model", &initial_model, "Specifies where to start the "
                  "optimization from.  If 0 ... #models-1, then specifies the model; "
                  "if >= #models, then the average of all inputs; if <0, chosen "
