@@ -1149,7 +1149,6 @@ void CuMatrix<Real>::CompObjfAndDeriv(const std::vector<MatrixElement<Real> >& s
 
 template<typename Real>
 void CuMatrix<Real>::CompObjfAndDerivSqrdErr(const std::vector<MatrixElement<Real> >& sv_labels, 
-                                      int32 target_dim,
                                       const CuMatrix<Real> &output,
                                       Real *tot_objf, Real* tot_weight) {
   { // check the input.
@@ -1176,7 +1175,7 @@ void CuMatrix<Real>::CompObjfAndDerivSqrdErr(const std::vector<MatrixElement<Rea
     //tmp(0) = 0; tmp(1) = 0;
     int dimBlock(CU1DBLOCK);
     int dimGrid = 1;// only 1 block here. we have loops in each thread  //(n_blocks(dim_, CU1DBLOCK));
-    cuda_comp_obj_deriv_sqrd_err(dimGrid, dimBlock, (MatrixElement<Real>*)addr, sv_labels.size(), target_dim, output.Data(), output.Dim(), this->Data(), this->Dim(), tmp.Data());
+    cuda_comp_obj_deriv_sqrd_err(dimGrid, dimBlock, (MatrixElement<Real>*)addr, sv_labels.size(), output.Data(), output.Dim(), this->Data(), this->Dim(), tmp.Data());
     Vector<Real> tmp_cpu(tmp);
     *tot_objf = tmp_cpu(0);
     *tot_weight = tmp_cpu(1);
@@ -1192,9 +1191,9 @@ void CuMatrix<Real>::CompObjfAndDerivSqrdErr(const std::vector<MatrixElement<Rea
       Real this_prob = output(m, label);
       if (this_prob < 1e-20) this_prob = 1e-20;
       // KALDI_ASSERT(this_prob >= 0.99e-20); // we floored to 1.0e-20 in SoftmaxLayer.
-      *tot_objf += -(weight - this_prob) * (weight - this_prob) / target_dim;
-      *tot_weight += 1.0 / target_dim;
-      (*this)(m, label) += 2 * ( weight - this_prob ) / target_dim;
+      *tot_objf += -(weight - this_prob) * (weight - this_prob);
+      *tot_weight += 1.0;
+      (*this)(m, label) += 2 * ( weight - this_prob );
 
     }
   }

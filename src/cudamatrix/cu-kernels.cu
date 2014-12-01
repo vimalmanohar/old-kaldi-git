@@ -987,7 +987,7 @@ static void _cuda_comp_obj_deriv(MatrixElement<Real> *x, int s, const Real* z, M
 
 template<typename Real>
 __global__
-static void _cuda_comp_obj_deriv_sqrd_err(MatrixElement<Real> *x, int s, int td, const Real* z, MatrixDim d, Real* z2, MatrixDim d2, Real* t) {
+static void _cuda_comp_obj_deriv_sqrd_err(MatrixElement<Real> *x, int s, const Real* z, MatrixDim d, Real* z2, MatrixDim d2, Real* t) {
   int i = threadIdx.x;
   __shared__ Real tot_objf[CU1DBLOCK];
   __shared__ Real tot_weight[CU1DBLOCK];
@@ -1012,12 +1012,12 @@ static void _cuda_comp_obj_deriv_sqrd_err(MatrixElement<Real> *x, int s, int td,
     int m = (x + j)->row;   //* ((int*) ((size_t)x + j * (2 * sizeof(int) + sizeof(Real) )) );
     int label = (x + j)->column; //*(int*) ((size_t)x + j * (2 * sizeof(int) + sizeof(Real) )+ sizeof(int));
     Real weight = (x + j)->weight; //*(Real*) ((size_t)x + j * (2 * sizeof(int) + sizeof(Real) ) + 2 * sizeof(int)); 
-    tmp_weight_sum += 1 / td;
+    tmp_weight_sum += 1;
     Real this_prob =  *(z + m * d.stride + label);
     if (this_prob < 1e-20) this_prob = 1e-20;
-    tmp_tot_objf += -(weight - this_prob) * (weight - this_prob) / td;
+    tmp_tot_objf += -(weight - this_prob) * (weight - this_prob);
 
-    *(z2 + m * d2.stride + label ) += 2 * (weight - this_prob) / td;
+    *(z2 + m * d2.stride + label ) += 2 * (weight - this_prob);
   }
   tot_objf[i] = tmp_tot_objf;
   tot_weight[i] = tmp_weight_sum;
@@ -2106,16 +2106,16 @@ void cudaF_comp_obj_deriv(dim3 Gr, dim3 Bl, MatrixElement<float>* x, int s, cons
   _cuda_comp_obj_deriv<<<Gr,Bl>>>(x,s,z,d,z2,d2,t);
 }
 
-void cudaF_comp_obj_deriv_sqrd_err(dim3 Gr, dim3 Bl, MatrixElement<float>* x, int s, int td, const float* z, MatrixDim d, float* z2, MatrixDim d2, float* t) {
-  _cuda_comp_obj_deriv_sqrd_err<<<Gr,Bl>>>(x,s,td,z,d,z2,d2,t);
+void cudaF_comp_obj_deriv_sqrd_err(dim3 Gr, dim3 Bl, MatrixElement<float>* x, int s, const float* z, MatrixDim d, float* z2, MatrixDim d2, float* t) {
+  _cuda_comp_obj_deriv_sqrd_err<<<Gr,Bl>>>(x,s,z,d,z2,d2,t);
 }
 
 void cudaD_comp_obj_deriv(dim3 Gr,dim3 Bl, MatrixElement<double>* x, int s, const double* z, MatrixDim d, double* z2, MatrixDim d2, double* t) {
   _cuda_comp_obj_deriv<<<Gr,Bl>>>(x,s,z,d,z2,d2,t);
 }
 
-void cudaD_comp_obj_deriv_sqrd_err(dim3 Gr,dim3 Bl, MatrixElement<double>* x, int s, int td, const double* z, MatrixDim d, double* z2, MatrixDim d2, double* t) {
-  _cuda_comp_obj_deriv_sqrd_err<<<Gr,Bl>>>(x,s,td,z,d,z2,d2,t);
+void cudaD_comp_obj_deriv_sqrd_err(dim3 Gr,dim3 Bl, MatrixElement<double>* x, int s, const double* z, MatrixDim d, double* z2, MatrixDim d2, double* t) {
+  _cuda_comp_obj_deriv_sqrd_err<<<Gr,Bl>>>(x,s,z,d,z2,d2,t);
 }
 
 void cudaF_vec_copy_diag_from_packed(int Gr, int Bl, float *dst, const float *src, int dim) {
