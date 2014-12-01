@@ -609,7 +609,6 @@ class CuMatrix: public CuMatrixBase<Real> {
   /// Preconditions: A must be strictly positive, and no (row, column) pair
   /// may be repeated within "elements"
   void CompObjfAndDerivSqrdErr(const std::vector<MatrixElement<Real> > &elements,
-                        int32 target_dim,
                         const CuMatrix<Real> &A,
                         Real *tot_objf,
                         Real* tot_weight);

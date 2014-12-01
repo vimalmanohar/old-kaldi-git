@@ -152,12 +152,12 @@ double NnetUpdater::ComputeObjfAndDeriv(
   if (config_.obj_func == "CrossEntropy")
     deriv->CompObjfAndDeriv(sv_labels, output, &tot_objf, &tot_weight);
   else if (config_.obj_func == "SquaredError")
-    deriv->CompObjfAndDerivSqrdErr(sv_labels, config_.target_dim, output, &tot_objf, &tot_weight);
+    deriv->CompObjfAndDerivSqrdErr(sv_labels, output, &tot_objf, &tot_weight);
   else
     KALDI_ERR << "Unknown objective function" << config_.obj_func;
   
   KALDI_VLOG(4) << "Objective function is " << (tot_objf/tot_weight) << " over "
-                << tot_weight << " samples (weighted).";
+                << tot_weight / config.target_dim_ << " samples (weighted).";
   return tot_objf;
 }
 
