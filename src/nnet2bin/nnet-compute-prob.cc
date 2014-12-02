@@ -100,6 +100,8 @@ int main(int argc, char *argv[]) {
       tot_weight += TotalNnetTrainingWeight(examples);
     }
 
+    if (config.obj_func == "SquaredError") tot_weight = num_examples * config.target_dim;
+
     KALDI_LOG << "Saw " << num_examples << " examples, average "
               << "probability is " << (tot_like / tot_weight)
               << " and accuracy is " << (tot_accuracy / tot_weight) << " with "

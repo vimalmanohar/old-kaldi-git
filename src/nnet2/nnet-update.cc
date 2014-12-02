@@ -157,7 +157,7 @@ double NnetUpdater::ComputeObjfAndDeriv(
     KALDI_ERR << "Unknown objective function" << config_.obj_func;
   
   KALDI_VLOG(4) << "Objective function is " << (tot_objf/tot_weight) << " over "
-                << tot_weight / config.target_dim_ << " samples (weighted).";
+                << tot_weight / config_.target_dim << " samples (weighted).";
   return tot_objf;
 }
 
