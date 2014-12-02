@@ -1,4 +1,4 @@
-// nnet2bin/nnet-replace-last-layers.cc
+// nnet2bin/nnet-am-fix.cc
 
 // Copyright 2012  Johns Hopkins University (author:  Daniel Povey)
 
@@ -20,8 +20,8 @@
 #include "base/kaldi-common.h"
 #include "util/common-utils.h"
 #include "hmm/transition-model.h"
+#include "nnet2/nnet-fix.h"
 #include "nnet2/am-nnet.h"
-#include "nnet2/nnet-functions.h"
 #include "hmm/transition-model.h"
 #include "tree/context-dep.h"
 
@@ -32,43 +32,41 @@ int main(int argc, char *argv[]) {
     typedef kaldi::int32 int32;
 
     const char *usage =
-        "This program is for adding new layers to a neural-network acoustic model.\n"
-        "It removes the last --remove-layers layers, and adds the layers from the\n"
-        "supplied raw-nnet.  The typical use is to remove the last two layers\n"
-        "(the softmax, and the affine component before it), and add in replacements\n"
-        "for them newly initialized by nnet-init.  This program is a more flexible\n"
-        "way of adding layers than nnet-insert, but the inserted network needs to\n"
-        "contain replacements for the removed layers.\n"
-        "This program by default reads/writes\n"
-        "model (.mdl) files, but with the --raw option can also work with 'raw' neural\n"
+        "Copy a (cpu-based) neural net and its associated transition model,\n"
+        "but modify it to remove certain pathologies.  We use the average\n"
+        "derivative statistics stored with the layers derived from\n"
+        "NonlinearComponent.  Note: some processes, such as nnet-combine-fast,\n"
+        "may not process these statistics correctly, and you may have to recover\n"
+        "them using the --stats-from option of nnet-am-copy before you use.\n"
+        "this program.\n"
+        "By default reads/writes model file (.mdl) but with --raw=true,\n"
+        "reads/writes raw-nnet.\n"
         "\n"
-        "Usage:  nnet-replace-last-layers [options] <nnet-in> <raw-nnet-to-insert-in> <nnet-out>\n"
-        "Usage:  nnet-replace-last-layers --raw [options] <nnet-in> <nnet-to-insert-in> <nnet-out>\n"
+        "Usage:  nnet-am-fix [options] <nnet-in> <nnet-out>\n"
         "e.g.:\n"
-        " nnet-replace-last-layers 1.nnet \"nnet-init hidden_layer.config -|\" 2.nnet\n";
+        " nnet-am-fix 1.mdl 1_fixed.mdl\n"
+        "or:\n"
+        " nnet-am-fix --get-counts-from=1.gradient 1.mdl 1_shrunk.mdl\n";
 
     bool binary_write = true;
     bool raw = false;
-    int32 remove_layers = 2;
-
-    ParseOptions po(usage);
+    NnetFixConfig config;
     
+    ParseOptions po(usage);
+    po.Register("raw", &raw,
+                "If true, read/write raw neural net rather than .mdl");
     po.Register("binary", &binary_write, "Write output in binary mode");
-    po.Register("raw", &raw, "If true, this program reads/writes raw "
-                "neural nets");
-    po.Register("remove-layers", &remove_layers, "Number of final layers "
-                "to remove before adding input raw network.");
+    config.Register(&po);
     
     po.Read(argc, argv);
     
-    if (po.NumArgs() != 3) {
+    if (po.NumArgs() != 2) {
       po.PrintUsage();
       exit(1);
     }
 
     std::string nnet_rxfilename = po.GetArg(1),
-        raw_nnet_rxfilename = po.GetArg(2),
-        nnet_wxfilename = po.GetArg(3);
+        nnet_wxfilename = po.GetArg(2);
     
     TransitionModel trans_model;
     AmNnet am_nnet;
@@ -82,16 +80,7 @@ int main(int argc, char *argv[]) {
       ReadKaldiObject(nnet_rxfilename, &nnet);
     }
 
-    Nnet src_nnet; // the one we'll insert.
-    ReadKaldiObject(raw_nnet_rxfilename, &src_nnet);
-
-    
-    // This function is declared in nnet-functions.h
-    ReplaceLastComponents(src_nnet,
-                          remove_layers,
-                          (raw ? &nnet : &(am_nnet.GetNnet())));
-    KALDI_LOG << "Removed " << remove_layers << " components and added "
-              << src_nnet.NumComponents();
+    FixNnet(config, &(raw ? nnet : am_nnet.GetNnet()));
     
     if (!raw) {
       Output ko(nnet_wxfilename, binary_write);
@@ -100,7 +89,9 @@ int main(int argc, char *argv[]) {
     } else {
       WriteKaldiObject(nnet, nnet_wxfilename, binary_write);
     }
-    KALDI_LOG << "Wrote neural-net acoustic model to " <<  nnet_wxfilename;
+
+    KALDI_LOG << "Copied neural net from " << nnet_rxfilename
+              << " to " << nnet_wxfilename;
     return 0;
   } catch(const std::exception &e) {
     std::cerr << e.what() << '\n';

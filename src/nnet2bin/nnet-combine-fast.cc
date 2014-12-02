@@ -37,6 +37,8 @@ int main(int argc, char *argv[]) {
         "do not have to sum to one).  The optimization is BFGS, which is initialized\n"
         "from the best of the individual input neural nets (or as specified by\n"
         "--initial-model)\n"
+        "By default reads/writes model file (.mdl) but with --raw=true,\n"
+        "reads/writes raw-nnet.\n"
         "\n"
         "Usage:  nnet-combine-fast [options] <model-in1> <model-in2> ... <model-inN> <valid-examples-in> <model-out>\n"
         "\n"
@@ -47,8 +49,11 @@ int main(int argc, char *argv[]) {
     bool binary_write = true;
     NnetCombineFastConfig combine_config;
     std::string use_gpu = "yes";
+    bool raw = false;
     
     ParseOptions po(usage);
+    po.Register("raw", &raw,
+                "If true, read/write raw neural net rather than .mdl");
     po.Register("binary", &binary_write, "Write output in binary mode");
     po.Register("use-gpu", &use_gpu,
                 "yes|no|optional|wait, only has effect if compiled with CUDA");
@@ -75,26 +80,35 @@ int main(int argc, char *argv[]) {
     
     TransitionModel trans_model;
     AmNnet am_nnet1;
-    {
+    Nnet nnet1; // used if raw==true.
+    if (!raw) {
       bool binary_read;
       Input ki(nnet1_rxfilename, &binary_read);
       trans_model.Read(ki.Stream(), binary_read);
       am_nnet1.Read(ki.Stream(), binary_read);
+    } else {
+      ReadKaldiObject(nnet1_rxfilename, &nnet1);
     }
 
     int32 num_nnets = po.NumArgs() - 2;
     std::vector<Nnet> nnets(num_nnets);
-    nnets[0] = am_nnet1.GetNnet();
-    am_nnet1.GetNnet() = Nnet(); // Clear it to save memory.
+    if (!raw) {
+      nnets[0] = am_nnet1.GetNnet();
+      am_nnet1.GetNnet() = Nnet(); // Clear it to save memory.
+    } else { nnets[0] = nnet1; }
 
     for (int32 n = 1; n < num_nnets; n++) {
-      TransitionModel trans_model;
-      AmNnet am_nnet;
-      bool binary_read;
-      Input ki(po.GetArg(1 + n), &binary_read);
-      trans_model.Read(ki.Stream(), binary_read);
-      am_nnet.Read(ki.Stream(), binary_read);
-      nnets[n] = am_nnet.GetNnet();
+      if (!raw) {
+        TransitionModel trans_model;
+        AmNnet am_nnet;
+        bool binary_read;
+        Input ki(po.GetArg(1 + n), &binary_read);
+        trans_model.Read(ki.Stream(), binary_read);
+        am_nnet.Read(ki.Stream(), binary_read);
+        nnets[n] = am_nnet.GetNnet();
+      } else {
+        ReadKaldiObject(po.GetArg(1 + n), &nnets[n]);
+      }
     }      
     
     std::vector<NnetExample> validation_set; // stores validation
@@ -113,12 +127,14 @@ int main(int argc, char *argv[]) {
     CombineNnetsFast(combine_config,
                      validation_set,
                      nnets,
-                     &(am_nnet1.GetNnet()));
+                     (raw ? &nnet1 : &(am_nnet1.GetNnet())));
     
-    {
+    if (!raw) {
       Output ko(nnet_wxfilename, binary_write);
       trans_model.Write(ko.Stream(), binary_write);
       am_nnet1.Write(ko.Stream(), binary_write);
+    } else {
+      WriteKaldiObject(nnet1, nnet_wxfilename, binary_write);
     }
     
     KALDI_LOG << "Finished combining neural nets, wrote model to "
