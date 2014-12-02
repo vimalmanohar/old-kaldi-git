@@ -85,11 +85,14 @@ int main(int argc, char *argv[]) {
     {
       TransitionModel trans_model;
       AmNnet am_nnet;
-      {
+      Nnet nnet;
+      if (!raw) {
         bool binary_read;
         Input ki(nnet_rxfilename, &binary_read);
         trans_model.Read(ki.Stream(), binary_read);
         am_nnet.Read(ki.Stream(), binary_read);
+      } else {
+        ReadKaldiObject(nnet_rxfilename, &nnet);
       }
 
       Nnet &nnet_ref = (raw ? nnet : am_nnet.GetNnet());

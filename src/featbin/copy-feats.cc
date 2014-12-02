@@ -41,6 +41,8 @@ int main(int argc, char *argv[]) {
     bool htk_in = false;
     bool sphinx_in = false;
     bool compress = false;
+    std::string utt_map_file;
+
     po.Register("htk-in", &htk_in, "Read input as HTK features");
     po.Register("sphinx-in", &sphinx_in, "Read input as Sphinx features");
     po.Register("binary", &binary, "Binary-mode output (not relevant if writing "
@@ -48,12 +50,33 @@ int main(int argc, char *argv[]) {
     po.Register("compress", &compress, "If true, write output in compressed form"
                 "(only currently supported for wxfilename, i.e. archive/script,"
                 "output)");
+    po.Register("utt-map", &utt_map_file, "Apply a map on the utterance id."
+                " (Used for mapping utterance id of perturbed features to "
+                "the utterance id of 'real' features.");
     
     po.Read(argc, argv);
 
     if (po.NumArgs() != 2) {
       po.PrintUsage();
       exit(1);
+    }
+
+    unordered_map<std::string, std::string> utterance_map;
+    bool utt_map_flag = (utt_map_file != "");
+
+    if (utt_map_flag) {
+      bool binary;
+      Input ki(utt_map_file, &binary);
+      KALDI_ASSERT(!binary);
+      std::string line;
+      while (std::getline(ki.Stream(), line)) {
+        std::vector<std::string> split_line;
+        SplitStringToVector(line, " \t\r", true, &split_line);
+        if(split_line.empty() || split_line.size() != 2) {
+          KALDI_ERR << "Unable to parse line \"" << line << "\" encountered in input in " << utt_map_file;
+        }
+        utterance_map[split_line[0]] = split_line[1];
+      }
     }
 
     int32 num_done = 0;
@@ -67,34 +90,40 @@ int main(int argc, char *argv[]) {
         BaseFloatMatrixWriter kaldi_writer(wspecifier);
         if (htk_in) {
           SequentialTableReader<HtkMatrixHolder> htk_reader(rspecifier);
-          for (; !htk_reader.Done(); htk_reader.Next(), num_done++)
-            kaldi_writer.Write(htk_reader.Key(), htk_reader.Value().first);
+          for (; !htk_reader.Done(); htk_reader.Next(), num_done++) {
+            kaldi_writer.Write((utt_map_flag ? utterance_map[htk_reader.Key()] : htk_reader.Key()), htk_reader.Value().first);
+          }
         } else if (sphinx_in) {
           SequentialTableReader<SphinxMatrixHolder<> > sphinx_reader(rspecifier);
-          for (; !sphinx_reader.Done(); sphinx_reader.Next(), num_done++)
-            kaldi_writer.Write(sphinx_reader.Key(), sphinx_reader.Value());
+          for (; !sphinx_reader.Done(); sphinx_reader.Next(), num_done++) {
+            kaldi_writer.Write((utt_map_flag ? utterance_map[sphinx_reader.Key()] : sphinx_reader.Key()), sphinx_reader.Value());
+          }
         } else {
           SequentialBaseFloatMatrixReader kaldi_reader(rspecifier);
-          for (; !kaldi_reader.Done(); kaldi_reader.Next(), num_done++)
-            kaldi_writer.Write(kaldi_reader.Key(), kaldi_reader.Value());
+          for (; !kaldi_reader.Done(); kaldi_reader.Next(), num_done++) {
+            kaldi_writer.Write((utt_map_flag ? utterance_map[kaldi_reader.Key()] : kaldi_reader.Key()), kaldi_reader.Value());
+          }
         }
       } else {
         CompressedMatrixWriter kaldi_writer(wspecifier);
         if (htk_in) {
           SequentialTableReader<HtkMatrixHolder> htk_reader(rspecifier);
-          for (; !htk_reader.Done(); htk_reader.Next(), num_done++)
-            kaldi_writer.Write(htk_reader.Key(),
+          for (; !htk_reader.Done(); htk_reader.Next(), num_done++) {
+            kaldi_writer.Write((utt_map_flag ? utterance_map[htk_reader.Key()] : htk_reader.Key()),
                                CompressedMatrix(htk_reader.Value().first));
+          }
         } else if (sphinx_in) {
           SequentialTableReader<SphinxMatrixHolder<> > sphinx_reader(rspecifier);
-          for (; !sphinx_reader.Done(); sphinx_reader.Next(), num_done++)
-            kaldi_writer.Write(sphinx_reader.Key(),
+          for (; !sphinx_reader.Done(); sphinx_reader.Next(), num_done++) {
+            kaldi_writer.Write((utt_map_flag ? utterance_map[sphinx_reader.Key()] : sphinx_reader.Key()),
                                CompressedMatrix(sphinx_reader.Value()));
+          }
         } else {
           SequentialBaseFloatMatrixReader kaldi_reader(rspecifier);
-          for (; !kaldi_reader.Done(); kaldi_reader.Next(), num_done++)
-            kaldi_writer.Write(kaldi_reader.Key(),
+          for (; !kaldi_reader.Done(); kaldi_reader.Next(), num_done++) {
+            kaldi_writer.Write((utt_map_flag ? utterance_map[kaldi_reader.Key()] : kaldi_reader.Key()),
                                CompressedMatrix(kaldi_reader.Value()));
+          }
         }
       }
       KALDI_LOG << "Copied " << num_done << " feature matrices.";

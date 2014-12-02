@@ -1,4 +1,4 @@
-// nnet2bin/nnet-am-average.cc
+// nnet2bin/nnet-average.cc
 
 // Copyright 2012  Johns Hopkins University (author:  Daniel Povey)
 
@@ -36,10 +36,10 @@ int main(int argc, char *argv[]) {
         "By default reads/writes model file (.mdl) but with --raw=true,\n"
         "reads/writes raw-nnet.\n"
         "\n"
-        "Usage:  nnet-am-average [options] <model1> <model2> ... <modelN> <model-out>\n"
+        "Usage:  nnet-average [options] <model1> <model2> ... <modelN> <model-out>\n"
         "\n"
         "e.g.:\n"
-        " nnet-am-average 1.1.nnet 1.2.nnet 1.3.nnet 2.nnet\n";
+        " nnet-average 1.1.nnet 1.2.nnet 1.3.nnet 2.nnet\n";
     
     bool binary_write = true;
     bool sum = false;
@@ -71,26 +71,26 @@ int main(int argc, char *argv[]) {
       trans_model.Read(ki.Stream(), binary_read);
       am_nnet1.Read(ki.Stream(), binary_read);
     } else {
-      ReadKaldiObject(nnet_rxfilename, &nnet1);
+      ReadKaldiObject(nnet1_rxfilename, &nnet1);
     }
 
     int32 num_inputs = po.NumArgs() - 1;
     BaseFloat scale = (sum ? 1.0 : 1.0 / num_inputs);
 
-    Nnet &nnet1_ref = (raw ? nnet : am_nnet1.GetNnet());
+    Nnet &nnet1_ref = (raw ? nnet1 : am_nnet1.GetNnet());
     nnet1_ref.Scale(scale);
     
     for (int32 i = 2; i <= num_inputs; i++) {
-      bool binary_read;
-      Input ki(po.GetArg(i), &binary_read);
-      trans_model.Read(ki.Stream(), binary_read);
       if (!raw) {
         AmNnet am_nnet;
+        bool binary_read;
+        Input ki(po.GetArg(i), &binary_read);
+        trans_model.Read(ki.Stream(), binary_read);
         am_nnet.Read(ki.Stream(), binary_read);
         am_nnet1.GetNnet().AddNnet(scale, am_nnet.GetNnet());
       } else {
         Nnet nnet;
-        ReadKaldiObject(ki.Stream(), &nnet);
+        ReadKaldiObject(po.GetArg(i), &nnet);
         nnet1.AddNnet(scale, nnet);
       }
     }
