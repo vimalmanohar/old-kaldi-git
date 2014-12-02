@@ -80,46 +80,43 @@ done
 
 mkdir -p $dir/log
 
+if [ ! -z "$transform_dir" ]; then
+  [ ! -f $transform_dir/num_jobs ] && echo "num_jobs not found in $transform_dir" && exit 1
+  nj=`cat $transform_dir/num_jobs` || exit 1
+fi
+
 in_sdata=$in_data/split$nj
 utils/split_data.sh $in_data $nj
+
+out_sdata=$out_data/split$nj
+utils/split_data.sh $out_data $nj
 
 # Get list of validation utterances. 
 awk '{print $1}' $in_data/utt2spk | utils/shuffle_list.pl | head -$num_utts_subset \
     > $dir/valid_uttlist || exit 1;
 
+[ ! -s $dir/valid_uttlist ] && exit 1
+
 if [ -f $in_data/utt2uniq ]; then
-  out_sdata=$dir/egs/out_data/split$nj
-  mkdir -p $out_sdata
-
-  if [ -f $in_data/spk2uniq ]; then
-    cat $in_data/utt2uniq $in_data/spk2uniq | sort -u -k 1,1 > $dir/id2uniq
-  else
-    cp $in_data/utt2uniq $dir/id2uniq
-  fi
-
-  for f in wav.scp text feats.scp cvmn.scp utt2spk; do
-    $cmd JOB=1:$nj $dir/log/make_out_$f.JOB.log \
-      mkdir -p $out_sdata/JOB '&&' cat $in_sdata/JOB/$f \| \
-      utils/apply_map.pl $dir/id2uniq  '>' $out_sdata/JOB/$f || exit 1
-    cat $out_sdata/`seq -s ',' $nj`/$f | sort -u -k 1,1 > $dir/egs/out_data/$f
-  done
-  
   mv $dir/valid_uttlist $dir/valid_uttlist.tmp
+  [ ! -s $dir/valid_uttlist.tmp ] && exit 1
   utils/utt2spk_to_spk2utt.pl $in_data/utt2uniq > $dir/uniq2utt
   cat $dir/valid_uttlist.tmp | utils/apply_map.pl $in_data/utt2uniq | \
     sort | uniq | utils/apply_map.pl $dir/uniq2utt | \
     awk '{for(n=1;n<=NF;n++) print $n;}' | sort  > $dir/valid_uttlist
-  utils/apply_map.pl $in_data/utt2uniq < $dir/valid_uttlist | sort -u > $dir/valid_out_uttlist
-  rm $dir/uniq2utt $dir/valid_uttlist.tmp
-else
-  out_sdata=$out_data/split$nj
-  utils/split_data.sh $out_data $nj
-
-  ln -sf valid_uttlist $dir/valid_out_uttlist
 fi
 
+cp $dir/valid_uttlist $dir/valid_out_uttlist
+
 awk '{print $1}' $in_data/utt2spk | utils/filter_scp.pl --exclude $dir/valid_uttlist | \
-  head -$num_utts_subset > $dir/train_subset_uttlist || exit 1;
+  shuf -n $num_utts_subset > $dir/train_subset_uttlist || exit 1;
+
+cp $dir/train_subset_uttlist $dir/train_subset_out_uttlist
+ 
+#if [ -f $in_data/utt2uniq ]; then
+#  utils/apply_map.pl $in_data/utt2uniq < $dir/train_subset_uttlist | sort -u > $dir/train_subset_out_uttlist || exit 1
+#fi
+#[ ! -s $dir/train_subset_out_uttlist ] && exit 1
 
 ## Set up features. 
 if [ -z $feat_type ]; then
@@ -133,8 +130,8 @@ case $feat_type in
     valid_in_feats="ark,s,cs:utils/filter_scp.pl $dir/valid_uttlist $in_data/feats.scp | apply-cmvn $cmvn_opts --utt2spk=ark:$in_data/utt2spk scp:$in_data/cmvn.scp scp:- ark:- |"
     train_subset_in_feats="ark,s,cs:utils/filter_scp.pl $dir/train_subset_uttlist $in_data/feats.scp | apply-cmvn $cmvn_opts --utt2spk=ark:$in_data/utt2spk scp:$in_data/cmvn.scp scp:- ark:- |"
     out_feats="ark,s,cs:utils/filter_scp.pl --exclude $dir/valid_out_uttlist $out_sdata/JOB/feats.scp | apply-cmvn $cmvn_opts --utt2spk=ark:$out_sdata/JOB/utt2spk scp:$out_sdata/JOB/cmvn.scp scp:- ark:- |"
-    valid_out_feats="ark,s,cs:utils/filter_scp.pl $dir/valid_out_uttlist $dir/egs/out_data/feats.scp | apply-cmvn $cmvn_opts --utt2spk=ark:$dir/egs/out_data/utt2spk scp:$dir/egs/out_data/cmvn.scp scp:- ark:- |"
-    train_subset_out_feats="ark,s,cs:utils/filter_scp.pl $dir/train_subset_uttlist $dir/egs/out_data/feats.scp | apply-cmvn $cmvn_opts --utt2spk=ark:$dir/egs/out_data/utt2spk scp:$dir/egs/out_data/cmvn.scp scp:- ark:- |"
+    valid_out_feats="ark,s,cs:utils/filter_scp.pl $dir/valid_out_uttlist $out_data/feats.scp | apply-cmvn $cmvn_opts --utt2spk=ark:$out_data/utt2spk scp:$out_data/cmvn.scp scp:- ark:- |"
+    train_subset_out_feats="ark,s,cs:utils/filter_scp.pl $dir/train_subset_out_uttlist $out_data/feats.scp | apply-cmvn $cmvn_opts --utt2spk=ark:$out_data/utt2spk scp:$out_data/cmvn.scp scp:- ark:- |"
     echo $cmvn_opts >$dir/cmvn_opts
    ;;
   lda) 
@@ -147,8 +144,8 @@ case $feat_type in
     valid_in_feats="ark,s,cs:utils/filter_scp.pl $dir/valid_uttlist $in_data/feats.scp | apply-cmvn $cmvn_opts --utt2spk=ark:$in_data/utt2spk scp:$in_data/cmvn.scp scp:- ark:- | splice-feats $splice_opts ark:- ark:- | transform-feats $dir/final.mat ark:- ark:- |"
     train_subset_in_feats="ark,s,cs:utils/filter_scp.pl $dir/train_subset_uttlist $in_data/feats.scp | apply-cmvn $cmvn_opts --utt2spk=ark:$in_data/utt2spk scp:$in_data/cmvn.scp scp:- ark:- | splice-feats $splice_opts ark:- ark:- | transform-feats $dir/final.mat ark:- ark:- |"
     out_feats="ark,s,cs:utils/filter_scp.pl --exclude $dir/valid_out_uttlist $out_sdata/JOB/feats.scp | apply-cmvn $cmvn_opts --utt2spk=ark:$out_sdata/JOB/utt2spk scp:$out_sdata/JOB/cmvn.scp scp:- ark:- | splice-feats $splice_opts ark:- ark:- | transform-feats $dir/final.mat ark:- ark:- |"
-    valid_out_feats="ark,s,cs:utils/filter_scp.pl $dir/valid_out_uttlist $dir/egs/out_data/feats.scp | apply-cmvn $cmvn_opts --utt2spk=ark:$dir/egs/out_data/utt2spk scp:$dir/egs/out_data/cmvn.scp scp:- ark:- | splice-feats $splice_opts ark:- ark:- | transform-feats $dir/final.mat ark:- ark:- |"
-    train_subset_out_feats="ark,s,cs:utils/filter_scp.pl $dir/train_subset_uttlist $dir/egs/out_data/feats.scp | apply-cmvn $cmvn_opts --utt2spk=ark:$dir/egs/out_data/utt2spk scp:$dir/egs/out_data/cmvn.scp scp:- ark:- | splice-feats $splice_opts ark:- ark:- | transform-feats $dir/final.mat ark:- ark:- |"
+    valid_out_feats="ark,s,cs:utils/filter_scp.pl $dir/valid_out_uttlist $out_data/feats.scp | apply-cmvn $cmvn_opts --utt2spk=ark:$out_data/utt2spk scp:$out_data/cmvn.scp scp:- ark:- | splice-feats $splice_opts ark:- ark:- | transform-feats $dir/final.mat ark:- ark:- |"
+    train_subset_out_feats="ark,s,cs:utils/filter_scp.pl $dir/train_subset_out_uttlist $out_data/feats.scp | apply-cmvn $cmvn_opts --utt2spk=ark:$out_data/utt2spk scp:$out_data/cmvn.scp scp:- ark:- | splice-feats $splice_opts ark:- ark:- | transform-feats $dir/final.mat ark:- ark:- |"
     ;;
   *) echo "$0: invalid feature type $feat_type" && exit 1;
 esac
@@ -159,8 +156,8 @@ if [ -f $transform_dir/trans.1 ] && [ -f $transform_dir_out/trans.1 ] && [ $feat
   valid_in_feats="$valid_in_feats transform-feats --utt2spk=ark:$in_data/utt2spk 'ark:cat $transform_dir/trans.*|' ark:- ark:- |"
   train_subset_in_feats="$train_subset_in_feats transform-feats --utt2spk=ark:$in_data/utt2spk 'ark:cat $transform_dir/trans.*|' ark:- ark:- |"
   out_feats="$out_feats transform-feats --utt2spk=ark:$out_sdata/JOB/utt2spk ark:$transform_dir_out/trans.JOB ark:- ark:- |"
-  valid_out_feats="$valid_out_feats transform-feats --utt2spk=ark:$dir/egs/out_data/utt2spk 'ark:cat $transform_dir_out/trans.*|' ark:- ark:- |"
-  train_subset_out_feats="$train_subset_out_feats transform-feats --utt2spk=ark:$dir/egs/out_data/utt2spk 'ark:cat $transform_dir_out/trans.*|' ark:- ark:- |"
+  valid_out_feats="$valid_out_feats transform-feats --utt2spk=ark:$out_data/utt2spk 'ark:cat $transform_dir_out/trans.*|' ark:- ark:- |"
+  train_subset_out_feats="$train_subset_out_feats transform-feats --utt2spk=ark:$out_data/utt2spk 'ark:cat $transform_dir_out/trans.*|' ark:- ark:- |"
 fi
 if [ -f $transform_dir/raw_trans.1 ] && [ -f $transform_dir_out/raw_trans.1 ] && [ $feat_type == "raw" ]; then
   echo "$0: using raw-fMLLR transforms from $transform_dir"
@@ -168,13 +165,19 @@ if [ -f $transform_dir/raw_trans.1 ] && [ -f $transform_dir_out/raw_trans.1 ] &&
   valid_in_feats="$valid_in_feats transform-feats --utt2spk=ark:$in_data/utt2spk 'ark:cat $transform_dir/raw_trans.*|' ark:- ark:- |"
   train_subset_in_feats="$train_subset_in_feats transform-feats --utt2spk=ark:$in_data/utt2spk 'ark:cat $transform_dir/raw_trans.*|' ark:- ark:- |"
   out_feats="$out_feats transform-feats --utt2spk=ark:$out_sdata/JOB/utt2spk ark:$transform_dir_out/raw_trans.JOB ark:- ark:- |"
-  valid_out_feats="$valid_out_feats transform-feats --utt2spk=ark:$dir/egs/out_data/utt2spk 'ark:cat $transform_dir_out/raw_trans.*|' ark:- ark:- |"
-  train_subset_out_feats="$train_subset_out_feats transform-feats --utt2spk=ark:$dir/egs/out_data/utt2spk 'ark:cat $transform_dir_out/raw_trans.*|' ark:- ark:- |"
+  valid_out_feats="$valid_out_feats transform-feats --utt2spk=ark:$out_data/utt2spk 'ark:cat $transform_dir_out/raw_trans.*|' ark:- ark:- |"
+  train_subset_out_feats="$train_subset_out_feats transform-feats --utt2spk=ark:$out_data/utt2spk 'ark:cat $transform_dir_out/raw_trans.*|' ark:- ark:- |"
 fi
 
 feat_dim=$(subset-feats --n=1 "`echo $in_feats | sed 's/JOB/1/g'`" ark:- 2> /dev/null | feat-to-dim ark:- ark,t:- 2> /dev/null | awk '{print $2}') || exit 1
 target_dim=$(subset-feats --n=1 "`echo $out_feats | sed 's/JOB/1/g'`" ark:- 2> /dev/null | feat-to-dim ark:- ark,t:- 2> /dev/null | awk '{print $2}') || exit 1
 ivector_dim=0
+
+#if [ -f $in_data/utt2uniq ]; then
+#  valid_in_feats="$valid_in_feats copy-feats --utt-map=$in_data/utt2uniq ark:- ark:- |"
+#  train_subset_in_feats="$train_subset_in_feats copy-feats --utt-map=$in_data/utt2uniq ark:- ark:- |"
+#  in_feats="$in_feats copy-feats --utt-map=$in_data/utt2uniq ark:- ark:- |"
+#fi
 
 echo $feat_dim > $dir/feat_dim
 echo $target_dim > $dir/target_dim

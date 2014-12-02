@@ -84,13 +84,14 @@ transform_dir=
 transform_dir_out=
 cmvn_opts=  # will be passed to get_denoising_autoencoder_egs.sh, if supplied.  
             # only relevant for "raw" features, not lda.
+nj=4
 feat_type=raw  # Can be used to force "raw" features.
 prior_subset_size=10000 # 10k samples per job, for computing priors.  Should be
                         # more than enough.
 objf=SquaredError
 # End configuration section.
 
-objf_opts="--obj-func $objf"
+objf_opts="--obj-func=$objf"
 
 echo "$0 $@"  # Print the command line for logging
 
@@ -158,13 +159,13 @@ extra_opts=()
 [ ! -z "$feat_type" ] && extra_opts+=(--feat-type $feat_type)
 [ ! -z "$online_ivector_dir" ] && extra_opts+=(--online-ivector-dir $online_ivector_dir)
 extra_opts+=(--transform-dir "$transform_dir")
-extra_opts+=(--transform-dir "$transform_dir_out")
+extra_opts+=(--transform-dir-out "$transform_dir_out")
 extra_opts+=(--splice-width $splice_width)
 
 if [ $stage -le -3 ] && [ -z "$egs_dir" ]; then
   echo "$0: calling get_denoising_autoencoder_egs.sh"
   local/nnet2/get_denoising_autoencoder_egs.sh $egs_opts \
-    "${extra_opts[@]}" \
+    "${extra_opts[@]}" --nj $nj \
     --samples-per-iter $samples_per_iter \
     --num-jobs-nnet $num_jobs_nnet --stage $get_egs_stage \
     --cmd "$cmd" $egs_opts --io-opts "$io_opts" \
@@ -213,7 +214,7 @@ AffineComponentPreconditionedOnline input-dim=$hidden_layer_dim output-dim=$hidd
 TanhComponent dim=$hidden_layer_dim
 EOF
   $cmd $dir/log/nnet_init.log \
-    nnet-init $dir/nnet-config $dir/0.nnet || exit 1;
+    nnet-init $dir/nnet.config $dir/0.nnet || exit 1;
 fi
 
 objf_opts="$objf_opts --target-dim=$target_dim"
@@ -256,10 +257,11 @@ while [ $x -lt $num_iters ]; do
     fi
     
     echo "Training neural net (pass $x)"
-    if [ $x -gt 0 ] && \
-      [ $x -le $[($num_hidden_layers-1)*$add_layers_period] ] && \
+    if [ $x -gt $add_layers_period ] && \
+      [ $x -le $[$[num_hidden_layers-1]*$add_layers_period+1] ] && \
       [ $[($x-1) % $add_layers_period] -eq 0 ]; then
-      nnet="nnet-init --srand=$x $dir/hidden.config - | nnet-replace-last-layers --raw=true $dir/$x.nnet - - |"
+      ia=`nnet2-info --raw=true $dir/$x.nnet 2>/dev/null | grep num-components | awk '{print $2}'` || exit 1
+      nnet="nnet-init --srand=$x $dir/hidden.config - | nnet-insert --insert-at=$[ia-1] --raw=true $dir/$x.nnet - - |"
     else
       nnet=$dir/$x.nnet
     fi
@@ -363,7 +365,7 @@ if [ $stage -le $num_iters ]; then
     nnet-combine-fast --raw=true --use-gpu=no --num-threads=$combine_num_threads \
       --verbose=3 --minibatch-size=$mb $objf_opts \
       "${nnets_list[@]}" ark:$egs_dir/combine.egs \
-      $dir/final.|| exit 1;
+      $dir/final.nnet || exit 1;
 
   # Compute the probability of the final, combined model with
   # the same subset we used for the previous compute_probs, as the
