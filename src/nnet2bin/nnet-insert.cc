@@ -42,6 +42,8 @@ int main(int argc, char *argv[]) {
         "to the --stddev-factor option (default 0.1), times the inverse square root\n"
         "of the number of inputs to that component.\n"
         "Set --randomize-next-component=false to turn this off.\n"
+        "By default reads/writes model file (.mdl) but with --raw=true,\n"
+        "reads/writes raw-nnet.\n"
         "\n"
         "Usage:  nnet-insert [options] <nnet-in> <raw-nnet-to-insert-in> <nnet-out>\n"
         "e.g.:\n"
@@ -52,9 +54,11 @@ int main(int argc, char *argv[]) {
     int32 insert_at = -1;
     BaseFloat stddev_factor = 0.1;
     int32 srand_seed = 0;
-    
+    bool raw = false;
+
     ParseOptions po(usage);
-    
+    po.Register("raw", &raw,
+                "If true, read/write raw neural net rather than .mdl");
     po.Register("binary", &binary_write, "Write output in binary mode");
     po.Register("randomize-next-component", &randomize_next_component,
                 "If true, randomize the parameters of the next component after "
@@ -81,18 +85,21 @@ int main(int argc, char *argv[]) {
     
     TransitionModel trans_model;
     AmNnet am_nnet;
-    {
+    Nnet nnet;
+    if (!raw) {
       bool binary;
       Input ki(nnet_rxfilename, &binary);
       trans_model.Read(ki.Stream(), binary);
       am_nnet.Read(ki.Stream(), binary);
+    } else {
+      ReadKaldiObject(nnet_rxfilename, &nnet);
     }
 
     Nnet src_nnet; // the one we'll insert.
     ReadKaldiObject(raw_nnet_rxfilename, &src_nnet);
 
     if (insert_at == -1) {
-      if ((insert_at = IndexOfSoftmaxLayer(am_nnet.GetNnet())) == -1)
+      if ((insert_at = IndexOfSoftmaxLayer((raw? nnet : am_nnet.GetNnet()))) == -1)
         KALDI_ERR << "We don't know where to insert the new components: "
             "the neural net doesn't have exactly one softmax component, "
             "and you didn't use the --insert-at option.";
@@ -103,13 +110,13 @@ int main(int argc, char *argv[]) {
     // This function is declared in nnet-functions.h
     InsertComponents(src_nnet,
                      insert_at,
-                     &(am_nnet.GetNnet()));
+                     &((raw ? nnet : am_nnet.GetNnet())));
     KALDI_LOG << "Inserted " << src_nnet.NumComponents() << " components at "
               << "position " << insert_at;
 
     if (randomize_next_component) {
       int32 c = insert_at + src_nnet.NumComponents();
-      kaldi::nnet2::Component *component = &(am_nnet.GetNnet().GetComponent(c));
+      Component *component = &((raw? nnet.GetComponent(c) : am_nnet.GetNnet().GetComponent(c)));
       UpdatableComponent *uc = dynamic_cast<UpdatableComponent*>(component);
       if (!uc)
         KALDI_ERR << "You have --randomize-next-component=true, but the "
@@ -125,10 +132,12 @@ int main(int argc, char *argv[]) {
     }
 
    
-    {
+    if (!raw) {
       Output ko(nnet_wxfilename, binary_write);
       trans_model.Write(ko.Stream(), binary_write);
       am_nnet.Write(ko.Stream(), binary_write);
+    } else {
+      WriteKaldiObject(nnet, nnet_wxfilename, binary_write);
     }
     KALDI_LOG << "Write neural-net acoustic model to " <<  nnet_wxfilename;
     return 0;

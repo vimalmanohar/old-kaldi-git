@@ -35,6 +35,8 @@ int main(int argc, char *argv[]) {
         "Train the neural network parameters with backprop and stochastic\n"
         "gradient descent using minibatches.  Training examples would be\n"
         "produced by nnet-get-egs.\n"
+        "By default reads/writes model file (.mdl) but with --raw=true,\n"
+        "reads/writes raw-nnet.\n"
         "\n"
         "Usage:  nnet-train-simple [options] <model-in> <training-examples-in> <model-out>\n"
         "\n"
@@ -45,9 +47,12 @@ int main(int argc, char *argv[]) {
     bool zero_stats = true;
     int32 srand_seed = 0;
     std::string use_gpu = "yes";
+    bool raw = false;    
     NnetSimpleTrainerConfig train_config;
     
     ParseOptions po(usage);
+    po.Register("raw", &raw,
+                "If true, read/write raw neural net rather than .mdl");
     po.Register("binary", &binary_write, "Write output in binary mode");
     po.Register("zero-stats", &zero_stats, "If true, zero occupation "
                 "counts stored with the neural net (only affects mixing up).");
@@ -87,17 +92,20 @@ int main(int argc, char *argv[]) {
         am_nnet.Read(ki.Stream(), binary_read);
       }
 
-      if (zero_stats) am_nnet.GetNnet().ZeroStats();
-
+      Nnet &nnet_ref = (raw ? nnet : am_nnet.GetNnet());
+      if (zero_stats) nnet_ref.ZeroStats();
+    
       SequentialNnetExampleReader example_reader(examples_rspecifier);
       
-      num_examples = TrainNnetSimple(train_config, &(am_nnet.GetNnet()),
+      num_examples = TrainNnetSimple(train_config, nnet_ref,
                                      &example_reader);
     
-      {
+      if (!raw) {
         Output ko(nnet_wxfilename, binary_write);
         trans_model.Write(ko.Stream(), binary_write);
         am_nnet.Write(ko.Stream(), binary_write);
+      } else {
+        WriteKaldiObject(nnet, nnet_wxfilename, binary_write);
       }
     }
 #if HAVE_CUDA==1

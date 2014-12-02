@@ -52,7 +52,10 @@ int main(int argc, char *argv[]) {
 
     BaseFloat min_post = 0.01;
     bool random_prune = true; // preserve expectations.
+    bool no_prune = false;
 
+    po.Register("no-prune", &no_prune, "If true, no pruning will be done "
+                "irrespective of --min-post and --random-prune.");
     po.Register("min-post", &min_post, "Minimum posterior we will output (smaller "
                 "ones are pruned).  Also see --random-prune");
     po.Register("random-prune", &random_prune, "If true, prune posteriors with a "
@@ -81,7 +84,7 @@ int main(int argc, char *argv[]) {
         SubVector<BaseFloat> row(probs, i);
         for (int32 j = 0; j < row.Dim(); j++) {
           BaseFloat p = row(j);
-          if (p >= min_post) {
+          if (no_prune || p >= min_post) {
             post[i].push_back(std::make_pair(j, p));
           } else if (random_prune && (p / min_post) >= RandUniform()) {
             post[i].push_back(std::make_pair(j, min_post));

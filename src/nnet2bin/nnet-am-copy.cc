@@ -36,6 +36,8 @@ int main(int argc, char *argv[]) {
         "Also supports multiplying all the learning rates by a factor\n"
         "(the --learning-rate-factor option) and setting them all to a given\n"
         "value (the --learning-rate options)\n"
+        "By default reads/writes model file (.mdl) but with --raw=true,\n"
+        "reads/writes raw-nnet.\n"
         "\n"
         "Usage:  nnet-am-copy [options] <nnet-in> <nnet-out>\n"
         "e.g.:\n"
@@ -52,8 +54,11 @@ int main(int argc, char *argv[]) {
     std::string learning_rates = "";
     std::string scales = "";
     std::string stats_from;
+    bool raw = false;
     
     ParseOptions po(usage);
+    po.Register("raw", &raw,
+                "If true, read/write raw neural net rather than .mdl");
     po.Register("binary", &binary_write, "Write output in binary mode");
     po.Register("learning-rate-factor", &learning_rate_factor,
                 "Before copying, multiply all the learning rates in the "
@@ -96,39 +101,45 @@ int main(int argc, char *argv[]) {
     
     TransitionModel trans_model;
     AmNnet am_nnet;
-    {
+    Nnet nnet;
+    if (!raw) {
       bool binary;
       Input ki(nnet_rxfilename, &binary);
       trans_model.Read(ki.Stream(), binary);
       am_nnet.Read(ki.Stream(), binary);
+    } else {
+      ReadKaldiObject(nnet_rxfilename, &nnet);
     }
 
     if (learning_rate_factor != 1.0)
-      am_nnet.GetNnet().ScaleLearningRates(learning_rate_factor);
+      (raw ? nnet.ScaleLearningRates(learning_rate_factor) :
+             am_nnet.GetNnet().ScaleLearningRates(learning_rate_factor));
 
     if (learning_rate >= 0)
-      am_nnet.GetNnet().SetLearningRates(learning_rate);
+      (raw ? nnet.SetLearningRates(learning_rate) :
+             am_nnet.GetNnet().SetLearningRates(learning_rate));
 
     if (learning_rates != "") {
       std::vector<BaseFloat> learning_rates_vec;
       if (!SplitStringToFloats(learning_rates, ":", false, &learning_rates_vec)
           || static_cast<int32>(learning_rates_vec.size()) !=
-             am_nnet.GetNnet().NumUpdatableComponents()) {
+             (raw ? nnet.NumUpdatableComponents() : am_nnet.GetNnet().NumUpdatableComponents())) {
         KALDI_ERR << "Expected --learning-rates option to be a "
                   << "colon-separated string with "
-                  << am_nnet.GetNnet().NumUpdatableComponents()
+                  << (raw ? nnet.NumUpdatableComponents() : 
+                  am_nnet.GetNnet().NumUpdatableComponents())
                   << " elements, instead got \"" << learning_rates << '"';
       }
       SubVector<BaseFloat> learning_rates_vector(&(learning_rates_vec[0]),
                                                  learning_rates_vec.size());
-      am_nnet.GetNnet().SetLearningRates(learning_rates_vector);
+      (raw ? nnet.SetLearningRates(learning_rates_vector) : am_nnet.GetNnet().SetLearningRates(learning_rates_vector));
     }
 
     if (scales != "") {
       std::vector<BaseFloat> scales_vec;
       if (!SplitStringToFloats(scales, ":", false, &scales_vec)
           || static_cast<int32>(scales_vec.size()) !=
-             am_nnet.GetNnet().NumUpdatableComponents()) {
+             (raw ? nnet.NumUpdatableComponents() : am_nnet.GetNnet().NumUpdatableComponents())) {
         KALDI_ERR << "Expected --scales option to be a "
                   << "colon-separated string with "
                   << am_nnet.GetNnet().NumUpdatableComponents()
@@ -136,28 +147,29 @@ int main(int argc, char *argv[]) {
       }
       SubVector<BaseFloat> scales_vector(&(scales_vec[0]),
                                          scales_vec.size());
-      am_nnet.GetNnet().ScaleComponents(scales_vector);
+      (raw ? nnet.ScaleComponents(scales_vector) : am_nnet.GetNnet().ScaleComponents(scales_vector));
     }
 
     if (truncate >= 0) {
-      am_nnet.GetNnet().Resize(truncate);
-      if (am_nnet.GetNnet().OutputDim() != am_nnet.Priors().Dim()) {
+      (raw ? nnet.Resize(truncate) : am_nnet.GetNnet().Resize(truncate));
+      if (!raw && am_nnet.GetNnet().OutputDim() != am_nnet.Priors().Dim()) {
         Vector<BaseFloat> empty_priors;
         am_nnet.SetPriors(empty_priors); // so dims don't disagree.
       }
     }
 
-    if (remove_dropout) am_nnet.GetNnet().RemoveDropout();
+    if (remove_dropout) (raw ? nnet.RemoveDropout(): am_nnet.GetNnet().RemoveDropout());
 
-    if (dropout_scale != -1.0) am_nnet.GetNnet().SetDropoutScale(dropout_scale);
+    if (dropout_scale != -1.0) (raw ? nnet.SetDropoutScale(dropout_scale) : am_nnet.GetNnet().SetDropoutScale(dropout_scale));
 
-    if (remove_preconditioning) am_nnet.GetNnet().RemovePreconditioning();
+    if (remove_preconditioning) (raw ? nnet.RemovePreconditioning() : am_nnet.GetNnet().RemovePreconditioning());
 
-    if (collapse) am_nnet.GetNnet().Collapse(match_updatableness);
+    if (collapse) (raw ? nnet.Collapse(match_updatableness) : am_nnet.GetNnet().Collapse(match_updatableness));
     
     if (stats_from != "") {
       // Copy the stats associated with the layers descending from
       // NonlinearComponent.
+      if (!raw) {
       bool binary;
       Input ki(stats_from, &binary);
       TransitionModel trans_model;
@@ -165,13 +177,21 @@ int main(int argc, char *argv[]) {
       AmNnet am_nnet_stats;
       am_nnet_stats.Read(ki.Stream(), binary);
       am_nnet.GetNnet().CopyStatsFrom(am_nnet_stats.GetNnet());
+      } else {
+        Nnet nnet_stats;
+        ReadKaldiObject(stats_from, &nnet_stats); 
+        nnet.CopyStatsFrom(nnet_stats);
+      }
     }
     
-    {
+    if (!raw) {
       Output ko(nnet_wxfilename, binary_write);
       trans_model.Write(ko.Stream(), binary_write);
       am_nnet.Write(ko.Stream(), binary_write);
-    }
+    } else {
+      WriteKaldiObject(nnet, nnet_wxfilename, binary_write);
+    }  
+
     KALDI_LOG << "Copied neural net from " << nnet_rxfilename
               << " to " << nnet_wxfilename;
     return 0;

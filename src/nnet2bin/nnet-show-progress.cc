@@ -38,11 +38,16 @@ int main(int argc, char *argv[]) {
         "derivative information).  Also shows parameter differences per layer.\n"
         "If training examples not provided, only shows parameter differences per\n"
         "layer.\n"
+        "By default reads model file (.mdl) but with --raw=true,\n"
+        "reads raw-nnet.\n"
         "\n"
         "Usage:  nnet-show-progress [options] <old-model-in> <new-model-in> [<training-examples-in>]\n"
         "e.g.: nnet-show-progress 1.nnet 2.nnet ark:valid.egs\n";
     
+    bool raw = false;
     ParseOptions po(usage);
+    po.Register("raw", &raw,
+                "If true, read/write raw neural net rather than .mdl");
 
     int32 num_segments = 1;
     int32 batch_size = 1024;
@@ -73,21 +78,28 @@ int main(int argc, char *argv[]) {
 
     TransitionModel trans_model;
     AmNnet am_nnet1, am_nnet2;
-    {
+    Nnet nnet1, nnet2;
+    if (!raw) {
       bool binary_read;
       Input ki(nnet1_rxfilename, &binary_read);
       trans_model.Read(ki.Stream(), binary_read);
       am_nnet1.Read(ki.Stream(), binary_read);
+    } else {
+      ReadKaldiObject(nnet1_rxfilename, &nnet1);
     }
-    {
+
+    if (!raw) {
       bool binary_read;
       Input ki(nnet2_rxfilename, &binary_read);
       trans_model.Read(ki.Stream(), binary_read);
       am_nnet2.Read(ki.Stream(), binary_read);
-    }    
+    } else {
+      ReadKaldiObject(nnet2_rxfilename, &nnet2);
+    }
     
-    if (am_nnet1.GetNnet().GetParameterDim() !=
-        am_nnet2.GetNnet().GetParameterDim()) {
+    if ((raw ? nnet1.GetParameterDim() != nnet2.GetParameterDim() :
+        am_nnet1.GetNnet().GetParameterDim() !=
+        am_nnet2.GetNnet().GetParameterDim())) {
       KALDI_WARN << "Parameter-dim mismatch, cannot show progress.";
       exit(0);
     }
@@ -95,7 +107,7 @@ int main(int argc, char *argv[]) {
     int32 ret = 0;
     
     if (!examples_rspecifier.empty()) { 
-      Nnet nnet_gradient(am_nnet2.GetNnet());
+      Nnet nnet_gradient((raw ? nnet2 : am_nnet2.GetNnet()));
       const bool treat_as_gradient = true;
       nnet_gradient.SetZero(treat_as_gradient);
 
@@ -106,18 +118,19 @@ int main(int argc, char *argv[]) {
 
       int32 num_examples = examples.size();
     
-      int32 num_updatable = am_nnet1.GetNnet().NumUpdatableComponents();
+      int32 num_updatable = (raw ? nnet1.NumUpdatableComponents() : 
+                             am_nnet1.GetNnet().NumUpdatableComponents());
       Vector<BaseFloat> diff(num_updatable);
     
       for (int32 s = 0; s < num_segments; s++) {
         // start and end segments of the line between 0 and 1
         BaseFloat start = (s + 0.0) / num_segments,
             end = (s + 1.0) / num_segments, middle = 0.5 * (start + end);
-        Nnet interp_nnet(am_nnet2.GetNnet());
+        Nnet interp_nnet((raw ? nnet2 : am_nnet2.GetNnet()));
         interp_nnet.Scale(middle);
-        interp_nnet.AddNnet(1.0 - middle, am_nnet1.GetNnet());
+        interp_nnet.AddNnet(1.0 - middle, (raw ? nnet1 : am_nnet1.GetNnet()));
       
-        Nnet nnet_gradient(am_nnet2.GetNnet());
+        Nnet nnet_gradient((raw ? nnet2 : am_nnet2.GetNnet()));
         const bool treat_as_gradient = true;
         nnet_gradient.SetZero(treat_as_gradient);
 
@@ -126,8 +139,8 @@ int main(int argc, char *argv[]) {
         KALDI_LOG << "At position " << middle << ", objf per frame is " << objf_per_frame;
 
         Vector<BaseFloat> old_dotprod(num_updatable), new_dotprod(num_updatable);
-        nnet_gradient.ComponentDotProducts(am_nnet1.GetNnet(), &old_dotprod);
-        nnet_gradient.ComponentDotProducts(am_nnet2.GetNnet(), &new_dotprod);
+        nnet_gradient.ComponentDotProducts((raw ? nnet1 : am_nnet1.GetNnet()), &old_dotprod);
+        nnet_gradient.ComponentDotProducts((raw ? nnet2 : am_nnet2.GetNnet()), &new_dotprod);
         old_dotprod.Scale(1.0 / num_examples);
         new_dotprod.Scale(1.0 / num_examples);
         diff.AddVec(1.0/ num_segments, new_dotprod);
@@ -139,8 +152,8 @@ int main(int argc, char *argv[]) {
     }
    
     { // Get info about magnitude of parameter change.
-      Nnet diff_nnet(am_nnet1.GetNnet());
-      diff_nnet.AddNnet(-1.0, am_nnet2.GetNnet());
+      Nnet diff_nnet((raw ? nnet1 : (raw ? nnet1 : am_nnet1.GetNnet())));
+      diff_nnet.AddNnet(-1.0, (raw ? nnet2 : am_nnet2.GetNnet()));
       int32 num_updatable = diff_nnet.NumUpdatableComponents();
       Vector<BaseFloat> dot_prod(num_updatable);
       diff_nnet.ComponentDotProducts(diff_nnet, &dot_prod);
@@ -149,8 +162,12 @@ int main(int argc, char *argv[]) {
                 << dot_prod;
 
       Vector<BaseFloat> baseline_prod(num_updatable);
-      am_nnet1.GetNnet().ComponentDotProducts(am_nnet1.GetNnet(),
+      if (!raw) {
+        am_nnet1.GetNnet().ComponentDotProducts(am_nnet1.GetNnet(),
                                               &baseline_prod);
+      } else {
+        nnet2.ComponentDotProducts(nnet1, &baseline_prod);
+      }
       baseline_prod.ApplyPow(0.5);
       dot_prod.DivElements(baseline_prod);
       KALDI_LOG << "Relative parameter differences per layer are "
