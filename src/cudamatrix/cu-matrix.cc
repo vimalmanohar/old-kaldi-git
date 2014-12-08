@@ -1242,8 +1242,6 @@ void CuMatrix<Real>::CompObjfAndDerivSqrdErr(const std::vector<MatrixElement<Rea
       Real weight = sv_labels[i].weight;
       // KALDI_ASSERT(label >= 0 && label < nnet_.OutputDim());
       Real this_prob = output(m, label);
-      if (this_prob < 1e-20) this_prob = 1e-20;
-      // KALDI_ASSERT(this_prob >= 0.99e-20); // we floored to 1.0e-20 in SoftmaxLayer.
       *tot_objf += -(weight - this_prob) * (weight - this_prob);
       *tot_weight += 1.0;
       (*this)(m, label) += 2 * ( weight - this_prob );

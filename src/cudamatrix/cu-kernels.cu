@@ -1045,7 +1045,6 @@ static void _cuda_comp_obj_deriv_sqrd_err(MatrixElement<Real> *x, int s, const R
     Real weight = (x + j)->weight; //*(Real*) ((size_t)x + j * (2 * sizeof(int) + sizeof(Real) ) + 2 * sizeof(int)); 
     tmp_weight_sum += 1;
     Real this_prob =  *(z + m * d.stride + label);
-    if (this_prob < 1e-20) this_prob = 1e-20;
     tmp_tot_objf += -(weight - this_prob) * (weight - this_prob);
 
     *(z2 + m * d2.stride + label ) += 2 * (weight - this_prob);

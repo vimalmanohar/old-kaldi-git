@@ -71,6 +71,22 @@ Real SpMatrix<Real>::MaxAbsEig() const {
 }
 
 template<typename Real>
+void SpMatrix<Real>::Sqrtm() {
+  KALDI_ASSERT(this->NumRows() != 0);
+  Vector<Real> s(this->NumRows());
+  Matrix<Real> P(this->NumRows(), this->NumRows());
+  
+  SymPosSemiDefEig(&s, &P);
+
+  // Per-element sqrt
+  for (int32 i = 0; i < this->NumRows(); i++) {
+    s(i) = std::sqrt(s(i));
+  }
+
+  this->AddMat2Vec(1.0, P, kNoTrans, s, 0.0);
+}
+
+template<typename Real>
 void SpMatrix<Real>::Log() {
   KALDI_ASSERT(this->NumRows() != 0);
   Vector<Real> s(this->NumRows());

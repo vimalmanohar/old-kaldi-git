@@ -192,6 +192,14 @@ class SpMatrix : public PackedMatrix<Real> {
                MatrixIndexT lanczos_dim = 0) const;
 
 
+  /// Computes the matrix square root of a positive definite matrix. 
+  /// If the matrix M can be diagonalized as U D U^T,
+  /// define sqrtm(M):= U D^(1/2) U^T, where D^(1/2) is obtained 
+  /// by taking the element wise square root of the diagonal matrix D
+  /// This uses the function Eig to the 
+  /// eigendecomposition of the symmetric matrix. Will throw an error 
+  /// if not +ve definite
+  void Sqrtm();
   
   /// Takes log of the matrix (does eigenvalue decomposition then takes
   /// log of eigenvalues and reconstructs).  Will throw of not +ve definite.
