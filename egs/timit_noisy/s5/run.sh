@@ -115,42 +115,7 @@ while read noise_type <&3; do
   done 4< conf/snr.list
 done 3< conf/noisetypes.list
 
-echo ============================================================================
-echo "         MFCC Feature Extration & CMVN for Training and Test set           "
-echo ============================================================================
-
-# Now make MFCC features.
-mfccdir=mfcc
-
-nj=$decode_nj
-
-# Make MFCC features for clean data
-for x in train dev test; do 
-  x=${x}_clean
-  if [ ! -f data/$x/.mfcc.done ]; then
-    steps/make_mfcc.sh --cmd "$train_cmd" --nj $nj \
-      data/$x $exp/make_mfcc/$x $mfccdir
-    steps/compute_cmvn_stats.sh data/$x $exp/make_mfcc/$x $mfccdir || exit 1
-    utils/fix_data_dir.sh data/$x
-    touch data/$x/.mfcc.done
-  fi
-done
-
-# Make MFCC features for noisy data
-while read noise_type <&3; do
-  while read snr <&4; do
-    for x in train dev test; do 
-      x=${x}_noisy_${noise_type}_snr_${snr}
-      if [ ! -f data/$x/.mfcc.done ]; then
-        steps/make_mfcc.sh --cmd "$train_cmd" --nj $nj \
-          data/$x $exp/make_mfcc/$x $mfccdir
-        steps/compute_cmvn_stats.sh data/$x $exp/make_mfcc/$x $mfccdir
-        utils/fix_data_dir.sh data/$x
-        touch data/$x/.mfcc.done
-      fi
-    done
-  done 4< conf/snr.list
-done 3< conf/noisetypes.list
+local/timit_noisy_prepare_features.sh --type mfcc --nj $decode_nj --exp $exp
 
 if $data_only; then
   echo "--data-only is true. Exiting."

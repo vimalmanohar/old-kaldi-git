@@ -30,6 +30,7 @@
 #include "util/table-types.h"
 #include "lat/kaldi-lattice.h"
 #include "nnet2/nnet-example.h"
+#include "nnet2/nnet-multiview-example.h"
 #include "hmm/transition-model.h"
 #include "hmm/posterior.h"
 

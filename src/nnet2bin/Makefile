@@ -28,7 +28,9 @@ BINFILES = nnet-am-info nnet-init \
    cuda-compiled nnet-replace-last-layers nnet-am-switch-preconditioning \
    nnet-train-simple-perturbed nnet-train-parallel-perturbed \
    nnet1-to-raw-nnet raw-nnet-copy nnet-relabel-egs nnet-am-reinitialize \
-	 nnet-average nnet-shrink nnet-fix 
+	 nnet-average nnet-shrink nnet-fix nnet-distort-egs \
+	 nnet-train-dcca nnet-get-multiview-egs nnet-copy-multiview-egs \
+	 nnet-shuffle-multiview-egs nnet-subset-multiview-egs nnet-compute-corr
 
 OBJFILES =
 

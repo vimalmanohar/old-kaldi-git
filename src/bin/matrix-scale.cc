@@ -1,7 +1,8 @@
-// bin/vector-scale.cc
+// bin/matrix-scale.cc
 
 // Copyright 2009-2011  Microsoft Corporation
 //                2014  Johns Hopkins University (author: Daniel Povey)
+//                2014  Vimal Manohar
 
 // See ../../COPYING for clarification regarding multiple authors
 //
@@ -28,9 +29,9 @@ int main(int argc, char *argv[]) {
     using namespace kaldi;
 
     const char *usage =
-        "Scale a set of vectors in a Table (useful for speaker vectors and "
-        "per-frame weights)\n"
-        "Usage: vector-scale [options] <in-rspecifier|in-rxfilename> "
+        "Scale a set of matrices in a Table (useful for feature matrices and "
+        "stats)\n"
+        "Usage: matrix-scale [options] <in-rspecifier|in-rxfilename> "
         "<out-wspecifier|out-wxfilename>\n";
 
     bool binary = true;
@@ -41,8 +42,8 @@ int main(int argc, char *argv[]) {
 
     po.Register("binary", &binary, "If true, write output as binary (only "
                 "relevant for non-table input-output");
-    po.Register("scale", &scale, "Scaling factor for vectors");
-    po.Register("inverse-scale", &inverse_scale, "Inverse scaling factor for vectors; "
+    po.Register("scale", &scale, "Scaling factor for matrices");
+    po.Register("inverse-scale", &inverse_scale, "Inverse scaling factor for matrices; "
         "--scale option will be ignored if this is given and is non-zero");
     po.Read(argc, argv);
 
@@ -64,18 +65,18 @@ int main(int argc, char *argv[]) {
       std::string rspecifier = po.GetArg(1);
       std::string wspecifier = po.GetArg(2);
 
-      BaseFloatVectorWriter vec_writer(wspecifier);
+      BaseFloatMatrixWriter mat_writer(wspecifier);
 
-      SequentialBaseFloatVectorReader vec_reader(rspecifier);
+      SequentialBaseFloatMatrixReader mat_reader(rspecifier);
 
       int32 num_done = 0;
-      for (; !vec_reader.Done(); vec_reader.Next(), num_done++) {
-        Vector<BaseFloat> vec(vec_reader.Value());
-        vec.Scale(scale);
-        vec_writer.Write(vec_reader.Key(), vec);
+      for (; !mat_reader.Done(); mat_reader.Next(), num_done++) {
+        Matrix<BaseFloat> mat(mat_reader.Value());
+        mat.Scale(scale);
+        mat_writer.Write(mat_reader.Key(), mat);
       }
 
-      KALDI_LOG << "Scaled " << num_done << " vectors in " << rspecifier 
+      KALDI_LOG << "Scaled " << num_done << " matrices in " << rspecifier 
                 << "and wrote to " << wspecifier;
 
       return (num_done > 0);
@@ -91,12 +92,12 @@ int main(int argc, char *argv[]) {
     bool binary_in;
     Input ki(rx_filename, &binary_in);
 
-    Vector<BaseFloat> vec;
-    vec.Read(ki.Stream(), binary_in);
-    vec.Scale(scale);
+    Matrix<BaseFloat> mat;
+    mat.Read(ki.Stream(), binary_in);
+    mat.Scale(scale);
 
-    WriteKaldiObject(vec, wx_filename, binary);
-    KALDI_LOG << "Scaled vector in " << rx_filename
+    WriteKaldiObject(mat, wx_filename, binary);
+    KALDI_LOG << "Scaled matrix in " << rx_filename
       << "and wrote to " << wx_filename;
 
   } catch(const std::exception &e) {
