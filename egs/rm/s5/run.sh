@@ -104,29 +104,29 @@ steps/decode.sh --config conf/decode.config --nj 20 --cmd "$decode_cmd" \
 steps/align_si.sh --nj 8 --cmd "$train_cmd" --use-graphs true \
    data/train data/lang exp/tri2b exp/tri2b_ali
 
-#  Do MMI on top of LDA+MLLT.
-steps/make_denlats.sh --nj 8 --cmd "$train_cmd" \
-  data/train data/lang exp/tri2b exp/tri2b_denlats
-steps/train_mmi.sh data/train data/lang exp/tri2b_ali exp/tri2b_denlats exp/tri2b_mmi
-steps/decode.sh --config conf/decode.config --iter 4 --nj 20 --cmd "$decode_cmd" \
-   exp/tri2b/graph data/test exp/tri2b_mmi/decode_it4
-steps/decode.sh --config conf/decode.config --iter 3 --nj 20 --cmd "$decode_cmd" \
-   exp/tri2b/graph data/test exp/tri2b_mmi/decode_it3
-
-# Do the same with boosting.
-steps/train_mmi.sh --boost 0.05 data/train data/lang \
-   exp/tri2b_ali exp/tri2b_denlats exp/tri2b_mmi_b0.05
-steps/decode.sh --config conf/decode.config --iter 4 --nj 20 --cmd "$decode_cmd" \
-   exp/tri2b/graph data/test exp/tri2b_mmi_b0.05/decode_it4
-steps/decode.sh --config conf/decode.config --iter 3 --nj 20 --cmd "$decode_cmd" \
-   exp/tri2b/graph data/test exp/tri2b_mmi_b0.05/decode_it3
-
-# Do MPE.
-steps/train_mpe.sh data/train data/lang exp/tri2b_ali exp/tri2b_denlats exp/tri2b_mpe
-steps/decode.sh --config conf/decode.config --iter 4 --nj 20 --cmd "$decode_cmd" \
-   exp/tri2b/graph data/test exp/tri2b_mpe/decode_it4
-steps/decode.sh --config conf/decode.config --iter 3 --nj 20 --cmd "$decode_cmd" \
-   exp/tri2b/graph data/test exp/tri2b_mpe/decode_it3
+##  Do MMI on top of LDA+MLLT.
+#steps/make_denlats.sh --nj 8 --cmd "$train_cmd" \
+#  data/train data/lang exp/tri2b exp/tri2b_denlats
+#steps/train_mmi.sh data/train data/lang exp/tri2b_ali exp/tri2b_denlats exp/tri2b_mmi
+#steps/decode.sh --config conf/decode.config --iter 4 --nj 20 --cmd "$decode_cmd" \
+#   exp/tri2b/graph data/test exp/tri2b_mmi/decode_it4
+#steps/decode.sh --config conf/decode.config --iter 3 --nj 20 --cmd "$decode_cmd" \
+#   exp/tri2b/graph data/test exp/tri2b_mmi/decode_it3
+#
+## Do the same with boosting.
+#steps/train_mmi.sh --boost 0.05 data/train data/lang \
+#   exp/tri2b_ali exp/tri2b_denlats exp/tri2b_mmi_b0.05
+#steps/decode.sh --config conf/decode.config --iter 4 --nj 20 --cmd "$decode_cmd" \
+#   exp/tri2b/graph data/test exp/tri2b_mmi_b0.05/decode_it4
+#steps/decode.sh --config conf/decode.config --iter 3 --nj 20 --cmd "$decode_cmd" \
+#   exp/tri2b/graph data/test exp/tri2b_mmi_b0.05/decode_it3
+#
+## Do MPE.
+#steps/train_mpe.sh data/train data/lang exp/tri2b_ali exp/tri2b_denlats exp/tri2b_mpe
+#steps/decode.sh --config conf/decode.config --iter 4 --nj 20 --cmd "$decode_cmd" \
+#   exp/tri2b/graph data/test exp/tri2b_mpe/decode_it4
+#steps/decode.sh --config conf/decode.config --iter 3 --nj 20 --cmd "$decode_cmd" \
+#   exp/tri2b/graph data/test exp/tri2b_mpe/decode_it3
 
 
 ## Do LDA+MLLT+SAT, and decode.
@@ -146,6 +146,7 @@ steps/decode_fmllr.sh --config conf/decode.config --nj 20 --cmd "$decode_cmd" \
 steps/align_fmllr.sh --nj 8 --cmd "$train_cmd" --use-graphs true \
   data/train data/lang exp/tri3b exp/tri3b_ali
 
+exit 0
 
 # # We have now added a script that will help you find portions of your data that
 # # has bad transcripts, so you can filter it out.  Below we demonstrate how to

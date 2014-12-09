@@ -92,7 +92,7 @@ if [ $stage -le 4 ]; then
     --parallel-opts "$parallel_opts" \
     --num-jobs-nnet 6 \
     --num-hidden-layers 4 \
-    --mix-up 4000 \
+    --mix-up 4000 --cleanup false \
     --initial-learning-rate 0.02 --final-learning-rate 0.004 \
     --cmd "$decode_cmd" \
     --pnorm-input-dim 2400 \
