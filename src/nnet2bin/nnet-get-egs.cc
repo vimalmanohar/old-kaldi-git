@@ -97,6 +97,7 @@ int main(int argc, char *argv[]) {
     using namespace kaldi::nnet2;
     typedef kaldi::int32 int32;
     typedef kaldi::int64 int64;
+    typedef unordered_map<std::string, std::string, StringHasher> string_map;
 
     const char *usage =
         "Get frame-by-frame examples of data for neural network training.\n"
@@ -118,7 +119,8 @@ int main(int argc, char *argv[]) {
     
     int32 left_context = 0, right_context = 0,
         num_frames = 1, const_feat_dim = 0;
-    
+    std::string utt2uniq;
+
     ParseOptions po(usage);
     po.Register("left-context", &left_context, "Number of frames of left "
                 "context the neural net requires.");
@@ -129,12 +131,31 @@ int main(int argc, char *argv[]) {
     po.Register("const-feat-dim", &const_feat_dim, "If specified, the last "
                 "const-feat-dim dimensions of the feature input are treated as "
                 "constant over the context window (so are not spliced)");
-    
+    po.Register("utt2uniq", &utt2uniq, "Used to map the utt_id of "
+                "artificial utterances in features to utt_id of 'real' "
+                "utterances in alignment.");
+
     po.Read(argc, argv);
 
     if (po.NumArgs() != 3) {
       po.PrintUsage();
       exit(1);
+    }
+    
+    string_map utt2uniq_map;
+    if (utt2uniq != "") {
+      bool binary;
+      Input ki(utt2uniq, &binary);
+      KALDI_ASSERT(!binary);
+      std::string line;
+      while (std::getline(ki.Stream(), line)) {
+        std::vector<std::string> split_line;
+        SplitStringToVector(line, " \t\r", true, &split_line);
+        if(split_line.size() != 2) {
+          KALDI_ERR << "Unable to parse line \"" << line << "\" encountered in input in " << utt2uniq;
+        }
+        utt2uniq_map[split_line[0]] = split_line[1];
+      }
     }
 
     std::string feature_rspecifier = po.GetArg(1),
@@ -150,13 +171,19 @@ int main(int argc, char *argv[]) {
     int64 num_frames_written = 0, num_egs_written = 0;
     
     for (; !feat_reader.Done(); feat_reader.Next()) {
-      std::string key = feat_reader.Key();
+      std::string key = feat_reader.Key(), uniq_key = key;
+      if (utt2uniq != "") {
+        string_map::const_iterator got = utt2uniq_map.find(key);
+        if (got == utt2uniq_map.end()) 
+          KALDI_ERR << "Key " << key << " not found in " << utt2uniq;
+        uniq_key = utt2uniq_map[key];
+      }
       const Matrix<BaseFloat> &feats = feat_reader.Value();
-      if (!pdf_post_reader.HasKey(key)) {
-        KALDI_WARN << "No pdf-level posterior for key " << key;
+      if (!pdf_post_reader.HasKey(uniq_key)) {
+        KALDI_WARN << "No pdf-level posterior for key " << uniq_key;
         num_err++;
       } else {
-        const Posterior &pdf_post = pdf_post_reader.Value(key);
+        const Posterior &pdf_post = pdf_post_reader.Value(uniq_key);
         if (pdf_post.size() != feats.NumRows()) {
           KALDI_WARN << "Posterior has wrong size " << pdf_post.size()
                      << " versus " << feats.NumRows();
