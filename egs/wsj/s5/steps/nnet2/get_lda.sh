@@ -154,11 +154,21 @@ fi
 if [ $stage -le 0 ]; then
   echo "$0: Accumulating LDA statistics."
   rm $dir/lda.*.acc 2>/dev/null # in case any left over from before.
-  $cmd JOB=1:$nj $dir/log/lda_acc.JOB.log \
-    ali-to-post "ark:gunzip -c $alidir/ali.JOB.gz|" ark:- \| \
+
+  if [ ! -f $data/utt2uniq ]; then
+    $cmd JOB=1:$nj $dir/log/lda_acc.JOB.log \
+      ali-to-post "ark:gunzip -c $alidir/ali.JOB.gz |" ark:- \| \
       weight-silence-post 0.0 $silphonelist $alidir/final.mdl ark:- ark:- \| \
       acc-lda --rand-prune=$rand_prune $alidir/final.mdl "$spliced_feats" ark,s,cs:- \
-       $dir/lda.JOB.acc || exit 1;
+      $dir/lda.JOB.acc || exit 1;
+  else
+    ali="ark:gunzip -c $alidir/ali.{?,??}.gz | copy-int-vector --include=\"cat $sdata/JOB/feats.scp | utils/apply_map.pl -f 1 $data/utt2uniq | sort -u |\" ark:- ark:- |"
+    $cmd JOB=1:$nj $dir/log/lda_acc.JOB.log \
+      ali-to-post "$ali" ark:- \| \
+      weight-silence-post 0.0 $silphonelist $alidir/final.mdl ark:- ark:- \| \
+      acc-lda --utt2uniq=$data/utt2uniq --rand-prune=$rand_prune $alidir/final.mdl "$spliced_feats" ark,s:- \
+      $dir/lda.JOB.acc || exit 1;
+  fi
 fi
 
 echo $feat_dim > $dir/feat_dim
