@@ -39,7 +39,7 @@ dir=$5
 name=`basename $data`
 tempdir=$tempdir/$name
 
-featdir=`perl -e '($dir,$pwd)= @ARGV; if($dir!~m:^/:) { $dir = "$pwd/$dir"; } print $dir; ' $fbank_dir ${PWD}`
+featdir=`perl -e '($dir,$pwd)= @ARGV; if($dir!~m:^/:) { $dir = "$pwd/$dir"; } print $dir; ' $featdir ${PWD}`
 
 if $raw; then
   model=$srcdir/$iter.nnet
@@ -58,6 +58,7 @@ done
 
 mkdir -p $tempdir
 mkdir -p $dir
+mkdir -p $featdir
 
 # because we [cat trans.*], no need to keep nj consistent with [# of trans]
 [ ! -z "$transform_dir" ] && nj=`cat $transform_dir/num_jobs`
@@ -135,7 +136,7 @@ for n in $(seq $nj); do
   cat $featdir/raw_post_feat_$name.$n.scp || exit 1;
 done > $dir/feats.scp
 
-for f in segments spk2utt text utt2spk wav.scp char.stm glm kws reco2file_and_channel stm; do
+for f in segments spk2utt text utt2spk wav.scp char.stm glm kws reco2file_and_channel stm utt2uniq spk2uniq; do
   [ -e $data/$f ] && cp $data/$f $dir/$f
 done
 

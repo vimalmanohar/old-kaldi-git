@@ -237,21 +237,38 @@ if [ $stage -le 2 ]; then
   echo "$0: Getting validation and training subset examples."
   rm $dir/.error 2>/dev/null
   echo "$0: ... extracting validation and training-subset alignments."
-  set -o pipefail;
-  for id in $(seq $nj); do gunzip -c $alidir/ali.$id.gz; done | \
-    copy-int-vector ark:- ark,t:- | \
-    utils/filter_scp.pl <(cat $dir/valid_uttlist $dir/train_subset_uttlist) | \
-    gzip -c >$dir/ali_special.gz || exit 1;
-  set +o pipefail; # unset the pipefail option.
+  if [ ! -f $data/utt2uniq ]; then
+    set -o pipefail;
+    for id in $(seq $nj); do gunzip -c $alidir/ali.$id.gz; done | \
+      copy-int-vector ark:- ark,t:- | \
+      utils/filter_scp.pl <(cat $dir/valid_uttlist $dir/train_subset_uttlist) | \
+      gzip -c >$dir/ali_special.gz || exit 1;
+    set +o pipefail; # unset the pipefail option.
 
-  $cmd $dir/log/create_valid_subset.log \
-    nnet-get-egs $uniq_opts $ivectors_opt $nnet_context_opts "$valid_feats" \
-    "ark,s,cs:gunzip -c $dir/ali_special.gz | ali-to-pdf $alidir/final.mdl ark:- ark:- | ali-to-post ark:- ark:- |" \
-     "ark:$dir/valid_all.egs" || touch $dir/.error &
-  $cmd $dir/log/create_train_subset.log \
-    nnet-get-egs $uniq_opts $ivectors_opt $nnet_context_opts "$train_subset_feats" \
-     "ark,s,cs:gunzip -c $dir/ali_special.gz | ali-to-pdf $alidir/final.mdl ark:- ark:- | ali-to-post ark:- ark:- |" \
-     "ark:$dir/train_subset_all.egs" || touch $dir/.error &
+    $cmd $dir/log/create_valid_subset.log \
+      nnet-get-egs $uniq_opts $ivectors_opt $nnet_context_opts "$valid_feats" \
+      "ark,s,cs:gunzip -c $dir/ali_special.gz | ali-to-pdf $alidir/final.mdl ark:- ark:- | ali-to-post ark:- ark:- |" \
+      "ark:$dir/valid_all.egs" || touch $dir/.error &
+    $cmd $dir/log/create_train_subset.log \
+      nnet-get-egs $uniq_opts $ivectors_opt $nnet_context_opts "$train_subset_feats" \
+      "ark,s,cs:gunzip -c $dir/ali_special.gz | ali-to-pdf $alidir/final.mdl ark:- ark:- | ali-to-post ark:- ark:- |" \
+      "ark:$dir/train_subset_all.egs" || touch $dir/.error &
+  else
+    ali=$(eval echo $alidir/ali.{`seq -s ',' $nj`}.gz)
+    $cmd $dir/log/create_special_ali.log \
+      copy-int-vector --include="cat $dir/valid_uttlist $dir/train_subset_uttlist | utils/apply_map.pl -f 1 $data/utt2uniq | sort -u |" \
+      "ark:gunzip -c $ali |" "ark:|gzip -c > $dir/ali_special.gz" || exit 1
+    
+    $cmd $dir/log/create_valid_subset.log \
+      nnet-get-egs --utt2uniq=$data/utt2uniq $ivectors_opt $nnet_context_opts "$valid_feats" \
+      "ark,s:gunzip -c $dir/ali_special.gz | ali-to-pdf $alidir/final.mdl ark:- ark:- | ali-to-post ark:- ark:- |" \
+      "ark:$dir/valid_all.egs" || touch $dir/.error &
+    $cmd $dir/log/create_train_subset.log \
+      nnet-get-egs --utt2uniq=$data/utt2uniq $ivectors_opt $nnet_context_opts "$train_subset_feats" \
+      "ark,s:gunzip -c $dir/ali_special.gz | ali-to-pdf $alidir/final.mdl ark:- ark:- | ali-to-post ark:- ark:- |" \
+      "ark:$dir/train_subset_all.egs" || touch $dir/.error &
+  fi
+
   wait;
   [ -f $dir/.error ] && echo "Error detected while creating train/valid egs" && exit 1
   echo "... Getting subsets of validation examples for diagnostics and combination."
@@ -288,19 +305,33 @@ if [ $stage -le 3 ]; then
     egs_list="$egs_list ark:$dir/egs_orig.$n.JOB.ark"
   done
   echo "$0: Generating training examples on disk"
-  # The examples will go round-robin to egs_list. 
-  if [ ! -z $postdir ]; then
-    $cmd $io_opts JOB=1:$nj $dir/log/get_egs.JOB.log \
-      nnet-get-egs $uniq_opts $ivectors_opt $nnet_context_opts --num-frames=$frames_per_eg "$feats" \
-      scp:$postdir/post.JOB.scp ark:- \| \
-      nnet-copy-egs ark:- $egs_list || exit 1;
-  else 
-    $cmd $io_opts JOB=1:$nj $dir/log/get_egs.JOB.log \
-      nnet-get-egs $uniq_opts $ivectors_opt $nnet_context_opts --num-frames=$frames_per_eg "$feats" \
-      "ark,s,cs:gunzip -c $alidir/ali.JOB.gz | ali-to-pdf $alidir/final.mdl ark:- ark:- | ali-to-post ark:- ark:- |" ark:- \| \
-      nnet-copy-egs ark:- $egs_list || exit 1;
+  
+  # The examples will go round-robin to egs_list.
+  if [ ! -f $data/utt2uniq ]; then
+    if [ ! -z $postdir ]; then
+      $cmd $io_opts JOB=1:$nj $dir/log/get_egs.JOB.log \
+        nnet-get-egs $uniq_opts $ivectors_opt $nnet_context_opts --num-frames=$frames_per_eg "$feats" \
+        scp:$postdir/post.JOB.scp ark:- \| \
+        nnet-copy-egs ark:- $egs_list || exit 1;
+    else 
+      $cmd $io_opts JOB=1:$nj $dir/log/get_egs.JOB.log \
+        nnet-get-egs $uniq_opts $ivectors_opt $nnet_context_opts --num-frames=$frames_per_eg "$feats" \
+        "ark,s,cs:gunzip -c $alidir/ali.JOB.gz | ali-to-pdf $alidir/final.mdl ark:- ark:- | ali-to-post ark:- ark:- |" ark:- \| \
+        nnet-copy-egs ark:- $egs_list || exit 1;
+    fi
+  else
+    if [ -z $postdir ]; then
+      ali="ark,s:gunzip -c $alidir/ali.{?,??}.gz | copy-int-vector --include=\"cat $sdata/JOB/feats.scp | utils/apply_map.pl -f 1 $data/utt2uniq | sort -u |\" ark:- ark:- |"
+      $cmd $io_opts JOB=1:$nj $dir/log/get_egs.JOB.log \
+        nnet-get-egs $uniq_opts $ivectors_opt $nnet_context_opts --num-frames=$frames_per_eg "$feats" \
+        "$ali ali-to-pdf $alidir/final.mdl ark:- ark:- | ali-to-post ark:- ark:- |" ark:- \| \
+        nnet-copy-egs ark:- $egs_list || exit 1;
+    else
+      echo "--postdir not supported" && exit 1;
+    fi
   fi
 fi
+
 if [ $stage -le 4 ]; then
   echo "$0: recombining and shuffling order of archives on disk"
   # combine all the "egs_orig.JOB.*.scp" (over the $nj splits of the data) and
