@@ -33,6 +33,7 @@ int main(int argc, char *argv[]) {
   using namespace kaldi;
   typedef kaldi::int32 int32;
   try {
+    typedef unordered_map<std::string, std::string, StringHasher> string_map;
     const char *usage =
         "Accumulate LDA statistics based on pdf-ids.\n"
         "Usage:  acc-lda [options] <transition-gmm/model> <features-rspecifier> <posteriors-rspecifier> <lda-acc-out>\n"
@@ -41,14 +42,35 @@ int main(int argc, char *argv[]) {
 
     bool binary = true;
     BaseFloat rand_prune = 0.0;
+    std::string utt2uniq;
+    
     ParseOptions po(usage);
     po.Register("binary", &binary, "Write accumulators in binary mode.");
     po.Register("rand-prune", &rand_prune, "Randomized pruning threshold for posteriors");
+    po.Register("utt2uniq", &utt2uniq, "Used to map the utt_id of "
+                "artificial utterances in features to utt_id of 'real' "
+                "utterances in alignment.");
     po.Read(argc, argv);
 
     if (po.NumArgs() != 4) {
       po.PrintUsage();
       exit(1);
+    }
+    
+    string_map utt2uniq_map;
+    if (utt2uniq != "") {
+      bool binary;
+      Input ki(utt2uniq, &binary);
+      KALDI_ASSERT(!binary);
+      std::string line;
+      while (std::getline(ki.Stream(), line)) {
+        std::vector<std::string> split_line;
+        SplitStringToVector(line, " \t\r", true, &split_line);
+        if(split_line.size() != 2) {
+          KALDI_ERR << "Unable to parse line \"" << line << "\" encountered in input in " << utt2uniq;
+        }
+        utt2uniq_map[split_line[0]] = split_line[1];
+      }
     }
 
     std::string model_rxfilename = po.GetArg(1);
@@ -71,13 +93,20 @@ int main(int argc, char *argv[]) {
 
     int32 num_done = 0, num_fail = 0;
     for (;!feature_reader.Done(); feature_reader.Next()) {
-      std::string utt = feature_reader.Key();
-      if (!posterior_reader.HasKey(utt)) {
-        KALDI_WARN << "No posteriors for utterance " << utt;
+      std::string utt = feature_reader.Key(), uniq_utt = utt;
+      if (utt2uniq != "") {
+        string_map::const_iterator got = utt2uniq_map.find(utt);
+        if (got == utt2uniq_map.end()) 
+          KALDI_ERR << "Key " << utt << " not found in " << utt2uniq;
+        uniq_utt = utt2uniq_map[utt];
+      }
+
+      if (!posterior_reader.HasKey(uniq_utt)) {
+        KALDI_WARN << "No posteriors for utterance " << uniq_utt;
         num_fail++;
         continue;
       }
-      const Posterior &post (posterior_reader.Value(utt));
+      const Posterior &post (posterior_reader.Value(uniq_utt));
       const Matrix<BaseFloat> &feats(feature_reader.Value());
 
       if (lda.Dim() == 0)
