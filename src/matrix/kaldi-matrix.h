@@ -571,6 +571,17 @@ class MatrixBase {
     Matrix<Real> M(A), N(C);
     return AddMatMatMat(alpha, M, kNoTrans, B, transB, N, kNoTrans, beta);
   }
+
+  /// this <-- beta*this + alpha*A*B*C.
+  void AddTpMatTp(const Real alpha,
+                  const TpMatrix<Real> &A,
+                  const MatrixBase<Real>& B, MatrixTransposeType transB,
+                  const TpMatrix<Real>& C,
+                const Real beta) {
+    Matrix<Real> M(A), N(C);
+    return AddMatMatMat(alpha, M, kNoTrans, B, transB, N, kNoTrans, beta);
+  }
+
   /// this <-- beta*this + alpha*A*B.
   void AddMatTp(const Real alpha,
                 const MatrixBase<Real>& A, MatrixTransposeType transA,

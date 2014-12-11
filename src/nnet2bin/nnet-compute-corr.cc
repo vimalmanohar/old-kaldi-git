@@ -100,7 +100,7 @@ int main(int argc, char *argv[]) {
         for (int32 i = 0; i < 2; i++)
           buffers[i].push_back(eg.views[i]);
         if (buffers[0].size() == 1000) {
-          corr += NnetDccaTrainer::ComputeDccaObjf(nnets, buffers, regularizers, updater_config);
+          corr += NnetDccaTrainer::ComputeDccaObjf(nnets, buffers, regularizers, updater_config) * (buffers[0].size() - 1);
           num_batches++;
           for (int32 i = 0; i < 2; i++) 
             buffers[i].clear();
@@ -108,18 +108,18 @@ int main(int argc, char *argv[]) {
 
         if (num_examples % 5000 == 0 && num_examples > 0)
           KALDI_LOG << "Saw " << num_examples << " examples, average "
-                    << "correlation is " << corr / num_batches;
+                    << "correlation is " << corr / (num_examples - 1);
     }
 
     if (!buffers[0].empty()) {
-      corr += NnetDccaTrainer::ComputeDccaObjf(nnets, buffers, regularizers, updater_config);
+      corr += NnetDccaTrainer::ComputeDccaObjf(nnets, buffers, regularizers, updater_config) * (buffers[0].size() - 1);
       num_batches++;
     }
 
     KALDI_LOG << "Saw " << num_examples << " examples, average "
-      << "correlation is " << corr / num_batches;
+      << "correlation is " << corr / (num_examples - 1);
 
-    std::cout << (corr / num_batches) << "\n";
+    std::cout << (corr / (num_examples - 1)) << "\n";
     return (num_examples == 0 ? 1 : 0);
   } catch(const std::exception &e) {
     std::cerr << e.what() << '\n';
