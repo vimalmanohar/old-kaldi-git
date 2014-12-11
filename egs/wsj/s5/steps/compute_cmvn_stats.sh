@@ -49,6 +49,7 @@ if [ $# != 3 ]; then
    echo "                 only frames that are louder than the other channel."
    echo " --fake-dims <n1:n2>  Generate stats that won't cause normalization for these"
    echo "                  dimensions (e.g. 13:14:15)"
+   echo " --global        Compute global stats"
    exit 1;
 fi
 
