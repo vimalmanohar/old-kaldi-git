@@ -161,6 +161,7 @@ my $default_config_file = <<'EOF';
 command qsub -v PATH -cwd -S /bin/bash -j y -l arch=*64*
 option mem=* -l mem_free=\$0,ram_free=\$0
 option num_threads=* -pe smp \$0
+option num_threads=1  # Do not add anything to qsub_opts
 option max_jobs_run=* -tc \$0
 default gpu=0
 option gpu=0 -q all.q
@@ -215,7 +216,7 @@ while(<CONFIG>) {
       $cli_config_options{$option} = $arg;
     }
     print STDERR "Read from config file config option for $option: $arg\n"
-  } elsif ($_ =~ m/^option ([^=]+)=(\S+) (.+)$/) {
+  } elsif ($_ =~ m/^option ([^=]+)=(\S+)\s?(.*)$/) {
     # Config option that does not need replacement
     # e.g. option gpu=0 -q all.q
     my $option = $1;      # gpu
