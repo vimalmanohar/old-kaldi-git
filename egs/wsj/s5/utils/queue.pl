@@ -66,8 +66,6 @@ my $jobend;
 
 my $array_job = 0;
 
-print STDERR $0 . join(' ', @ARGV) . "\n";
-
 sub print_usage() {
   print STDERR
    "Usage: queue.pl [options] [JOB=1:n] log-file command-line arguments...\n" .
@@ -215,7 +213,6 @@ while(<CONFIG>) {
       $arg =~ s/\$0/$cli_options{$option}/g;
       $cli_config_options{$option} = $arg;
     }
-    print STDERR "Read from config file config option for $option: $arg\n"
   } elsif ($_ =~ m/^option ([^=]+)=(\S+)\s?(.*)$/) {
     # Config option that does not need replacement
     # e.g. option gpu=0 -q all.q
@@ -225,7 +222,6 @@ while(<CONFIG>) {
     if (exists $cli_options{$option}) {
       $cli_default_options{($option,$value)} = $arg;
     }
-    print STDERR "Read from config file default option for $option: $arg\n"
   } elsif ($_ =~ m/^default (\S+)=(\S+)/) {
     # Default options. Used for setting default values to options i.e. when
     # the user does not specify the option on the command line 
@@ -237,7 +233,6 @@ while(<CONFIG>) {
       # don't have to do anything
       $cli_options{$option} = $value;
     }
-    print STDERR "Read from config file default value $option=$value\n"
   } else {
     print STDERR "queue.pl: unable to parse line '$line' in $config\n";
     exit(1);
@@ -249,7 +244,6 @@ close(CONFIG);
 for my $option (keys %cli_options) {
   if ($option eq "config") { next; }
   my $value = $cli_options{$option};
-  print STDERR "Parsing CLI option --$option $value\n";
 
   if (exists $cli_default_options{($option,$value)}) {
     $qsub_opts .= "$cli_default_options{($option,$value)} ";
@@ -259,8 +253,6 @@ for my $option (keys %cli_options) {
     die "CLI option $option not described in $config file\n";
   }
 }
-
-print STDERR "All options successfully parsed\n";
 
 my $cwd = getcwd();
 my $logfile = shift @ARGV;
@@ -300,8 +292,6 @@ my $base = basename($logfile);
 my $qdir = "$dir/q";
 $qdir =~ s:/(log|LOG)/*q:/q:; # If qdir ends in .../log/q, make it just .../q.
 my $queue_logfile = "$qdir/$base";
-
-print STDERR "Queue log file is $queue_logfile\n";
 
 if (!-d $dir) { system "mkdir -p $dir 2>/dev/null"; } # another job may be doing this...
 if (!-d $dir) { die "Cannot make the directory $dir\n"; }
@@ -374,7 +364,6 @@ if ($array_job == 0) { # not an array job
 print Q "exit \$[\$ret ? 1 : 0]\n"; # avoid status 100 which grid-engine
 print Q "## submitted with:\n";       # treats specially.
 $qsub_cmd .= "-o $queue_logfile $qsub_opts $queue_array_opt $queue_scriptfile >>$queue_logfile 2>&1";
-print STDERR "# $qsub_cmd\n";
 print Q "# $qsub_cmd\n";
 if (!close(Q)) { # close was not successful... || die "Could not close script file $shfile";
   die "Failed to close the script file (full disk?)";
