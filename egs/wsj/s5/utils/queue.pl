@@ -42,14 +42,17 @@ use Getopt::Long;
 # 5) Default behavior
 # If the config file that is passed using is not readable, then the script
 # behaves as if the queue has the following config file:
-# # cat conf/queue.conf
-# command qsub -S /bin/bash -j y -l arch=*64*
-# option mem=* -l mem_free=$0,ram_free=$0
-# option num_threads=* -pe smp $0
-# option max_jobs_run=* -tc $0
+# $ cat conf/queue.conf
+# # Default configuration
+# command qsub -v PATH -cwd -S /bin/bash -j y -l arch=*64*
+# option mem=* -l mem_free=\$0,ram_free=\$0
+# option mem=0          # Do not add anything to qsub_opts
+# option num_threads=* -pe smp \$0
+# option num_threads=1  # Do not add anything to qsub_opts
+# option max_jobs_run=* -tc \$0
 # default gpu=0
 # option gpu=0 -q all.q
-# option gpu=* -l gpu=$0 -q g.q
+# option gpu=* -l gpu=\$0 -q g.q
 
 my $qsub_opts = "";
 my $sync = 0;
@@ -119,10 +122,8 @@ for (my $x = 1; $x <= 3; $x++) { # This for-loop is to
         $switch =~ s/^--//;
         $switch =~ s/-/_/g;         
         $cli_options{$switch} = $option;
-        print STDERR "Read config options --$switch $cli_options{$switch}\n";
       } else {  # Other qsub options - passed as is
         $qsub_opts .= "$switch $option ";
-        print STDERR "Read options $switch $option\n";
       }
     }
   }
@@ -158,6 +159,7 @@ my $default_config_file = <<'EOF';
 # Default configuration
 command qsub -v PATH -cwd -S /bin/bash -j y -l arch=*64*
 option mem=* -l mem_free=\$0,ram_free=\$0
+option mem=0          # Do not add anything to qsub_opts
 option num_threads=* -pe smp \$0
 option num_threads=1  # Do not add anything to qsub_opts
 option max_jobs_run=* -tc \$0
@@ -177,7 +179,6 @@ EOF
 
 my $opened_config_file = 1;
 
-print STDERR "Opening config file $config\n";
 open CONFIG, "<$config" or $opened_config_file = 0;
 
 my %cli_config_options = ();
@@ -185,7 +186,7 @@ my %cli_default_options = ();
 
 if ($opened_config_file == 0) { # Open the default config file instead
   print STDERR "Could not open $config\n";
-  print STDERR "Using defaut config file:\n$default_config_file";
+  print STDERR "Using defaut config instead\n";
   open (CONFIG, "echo \"$default_config_file\" |") or die "Unable to open pipe\n";
   $config = "Default config";
 }
