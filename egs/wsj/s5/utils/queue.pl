@@ -45,14 +45,14 @@ use Getopt::Long;
 # $ cat conf/queue.conf
 # # Default configuration
 # command qsub -v PATH -cwd -S /bin/bash -j y -l arch=*64*
-# option mem=* -l mem_free=\$0,ram_free=\$0
+# option mem=* -l mem_free=$0,ram_free=$0
 # option mem=0          # Do not add anything to qsub_opts
-# option num_threads=* -pe smp \$0
+# option num_threads=* -pe smp $0
 # option num_threads=1  # Do not add anything to qsub_opts
-# option max_jobs_run=* -tc \$0
+# option max_jobs_run=* -tc $0
 # default gpu=0
 # option gpu=0 -q all.q
-# option gpu=* -l gpu=\$0 -q g.q
+# option gpu=* -l gpu=$0 -q g.q
 
 my $qsub_opts = "";
 my $sync = 0;
@@ -158,14 +158,14 @@ if (exists $cli_options{"config"}) {
 my $default_config_file = <<'EOF';
 # Default configuration
 command qsub -v PATH -cwd -S /bin/bash -j y -l arch=*64*
-option mem=* -l mem_free=\$0,ram_free=\$0
+option mem=* -l mem_free=$0,ram_free=$0
 option mem=0          # Do not add anything to qsub_opts
-option num_threads=* -pe smp \$0
+option num_threads=* -pe smp $0
 option num_threads=1  # Do not add anything to qsub_opts
-option max_jobs_run=* -tc \$0
+option max_jobs_run=* -tc $0
 default gpu=0
 option gpu=0 -q all.q
-option gpu=* -l gpu=\$0 -q g.q
+option gpu=* -l gpu=$0 -q g.q
 EOF
 
 # Here the configuration options specified by the user on the command line
@@ -184,10 +184,11 @@ open CONFIG, "<$config" or $opened_config_file = 0;
 my %cli_config_options = ();
 my %cli_default_options = ();
 
-if ($opened_config_file == 0) { # Open the default config file instead
+if ($opened_config_file == 0 && $config ne "conf/queue.conf") { # Open the default config file instead
   print STDERR "Could not open $config\n";
-  print STDERR "Using defaut config instead\n";
-  open (CONFIG, "echo \"$default_config_file\" |") or die "Unable to open pipe\n";
+  exit(1);
+} elsif ($opened_config_file == 0 && $config eq "conf/queue.conf") {
+  open (CONFIG, "echo '$default_config_file' |") or die "Unable to open pipe\n";
   $config = "Default config";
 }
 
