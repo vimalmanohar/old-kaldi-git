@@ -104,26 +104,26 @@ for (my $x = 1; $x <= 3; $x++) { # This for-loop is to
     if ($switch eq "-V") {
       $qsub_opts .= "-V ";
     } else {
-      my $option = shift @ARGV;
-      if ($option =~ m/^--/) {
-        print STDERR "Suspicious argument '$option' to $switch; starts with '-'\n";
+      my $argument = shift @ARGV;
+      if ($argument =~ m/^--/) {
+        print STDERR "WARNING: suspicious argument '$argument' to $switch; starts with '-'\n";
       }
-      if ($switch eq "-sync" && $option =~ m/^[yY]/) {
+      if ($switch eq "-sync" && $argument =~ m/^[yY]/) {
         $sync = 1;
-        $qsub_opts .= "$switch $option ";
+        $qsub_opts .= "$switch $argument ";
       } elsif ($switch eq "-pe") { # e.g. -pe smp 5
-        my $option2 = shift @ARGV;
-        $qsub_opts .= "$switch $option $option2 ";
-        $num_threads = $option2;
+        my $argument2 = shift @ARGV;
+        $qsub_opts .= "$switch $argument $argument2 ";
+        $num_threads = $argument2;
       } elsif ($switch =~ m/^--/) { # Config options
-        # Convert CLI switch to variable name
-        # by removing '--' from the option and replacing any 
+        # Convert CLI option to variable name
+        # by removing '--' from the switch and replacing any 
         # '-' with a '_'
         $switch =~ s/^--//;
         $switch =~ s/-/_/g;         
-        $cli_options{$switch} = $option;
+        $cli_options{$switch} = $argument;
       } else {  # Other qsub options - passed as is
-        $qsub_opts .= "$switch $option ";
+        $qsub_opts .= "$switch $argument ";
       }
     }
   }
@@ -210,7 +210,7 @@ while(<CONFIG>) {
     my $option = $1;     # mem
     my $arg= $2;         # -l mem_free=$0,ram_free=$0
     if ($arg !~ m:\$0:) {  
-      die "Unable to parse line $line in $config\n";
+      die "Unable to parse line '$line' in config file ($config)\n";
     }
     if (exists $cli_options{$option}) {
       # Replace $0 with the argument read from command line.
@@ -239,7 +239,7 @@ while(<CONFIG>) {
       $cli_options{$option} = $value;
     }
   } else {
-    print STDERR "queue.pl: unable to parse line '$line' in $config\n";
+    print STDERR "queue.pl: unable to parse line '$line' in config file ($config)\n";
     exit(1);
   }
 }
@@ -247,7 +247,7 @@ while(<CONFIG>) {
 close(CONFIG);
 
 if ($read_command != 1) {
-  print STDERR "Config file ($config), does not contain the line \"command .*\"\n";
+  print STDERR "queue.pl: config file ($config) does not contain the line \"command .*\"\n";
   exit(1);
 }
 
