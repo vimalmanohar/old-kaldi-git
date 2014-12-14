@@ -184,15 +184,17 @@ open CONFIG, "<$config" or $opened_config_file = 0;
 my %cli_config_options = ();
 my %cli_default_options = ();
 
-if ($opened_config_file == 0 && $config ne "conf/queue.conf") { # Open the default config file instead
-  print STDERR "Could not open $config\n";
+if ($opened_config_file == 0 && exists($cli_options{"config"})) {   
+  print STDERR "Could not open config file $config\n";
   exit(1);
-} elsif ($opened_config_file == 0 && $config eq "conf/queue.conf") {
+} elsif ($opened_config_file == 0 && !exists($cli_options{"config"})) {
+  # Open the default config file instead
   open (CONFIG, "echo '$default_config_file' |") or die "Unable to open pipe\n";
   $config = "Default config";
 }
 
 my $qsub_cmd = "";
+my $read_command = 0;
 
 while(<CONFIG>) {
   chomp;
@@ -200,6 +202,7 @@ while(<CONFIG>) {
   $_ =~ s/\s*#.*//g;
   if ($_ eq "") { next; }
   if ($_ =~ /^command (.+)/) {
+    $read_command = 1;
     $qsub_cmd = $1 . " ";
   } elsif ($_ =~ m/^option ([^=]+)=\* (.+)$/) { 
     # Config option that needs replacement with parameter value read from CLI
@@ -242,6 +245,11 @@ while(<CONFIG>) {
 }
 
 close(CONFIG);
+
+if ($read_command != 1) {
+  print STDERR "Config file ($config), does not contain the line \"command .*\"\n";
+  exit(1);
+}
 
 for my $option (keys %cli_options) {
   if ($option eq "config") { next; }
