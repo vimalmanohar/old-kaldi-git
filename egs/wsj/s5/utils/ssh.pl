@@ -31,9 +31,6 @@ $qsub_opts=""; # These will be ignored.
 # First parse an option like JOB=1:4, and any
 # options that would normally be given to 
 # ssh.pl, which we will just discard.
-
-my $got_queue_switch = 0;
-
 if (@ARGV > 0) {
   while (@ARGV >= 2 && $ARGV[0] =~ m:^-:) { # parse any options
     # that would normally go to qsub, but which will be ignored here.
@@ -42,9 +39,6 @@ if (@ARGV > 0) {
       $qsub_opts .= "-V ";
     } else {
       $option = shift @ARGV;
-      if ($switch =~ m/^--/) { # Config options for queue.pl. Ignored here
-        $got_queue_switch = 1;
-      }
       if ($switch eq "-sync" && $option =~ m/^[yY]/) {
         $qsub_opts .= "-sync "; # Note: in the
         # corresponding code in queue.pl it says instead, just "$sync = 1;".
@@ -72,10 +66,6 @@ if (@ARGV > 0) {
   } elsif ($ARGV[0] =~ m/.+\=.*\:.*$/) {
     print STDERR "Warning: suspicious first argument to run.pl: $ARGV[0]\n";
   }
-}
-
-if ($got_queue_switch == 1) {
-  print STDERR "Warning: run.pl ignoring options starting with '--'\n";
 }
 
 if ($qsub_opts ne "") {
