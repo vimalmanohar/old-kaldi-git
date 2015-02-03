@@ -103,15 +103,14 @@ int main(int argc, char *argv[]) {
       if (num_done == 0){
         dim = feat1.NumCols();
         if (target_dim == 0) target_dim = dim;
-        int32 len = feat1.NumRows();
         Sigma_1.Resize(dim);
         Sigma_2.Resize(dim);
         Sigma_12.Resize(dim,dim);
-        Sigma_12.AddMatMat(1.0/(len-1), feat1, kTrans, feat2, kNoTrans, 1.0);
-        Sigma_1.AddMat2(1.0/(len-1), feat1, kTrans, 1.0);
-        Sigma_2.AddMat2(1.0/(len-1), feat2, kTrans, 1.0);
       }
-    
+      
+      Sigma_12.AddMatMat(1.0, feat1, kTrans, feat2, kNoTrans, 1.0);
+      Sigma_1.AddMat2(1.0, feat1, kTrans, 1.0);
+      Sigma_2.AddMat2(1.0, feat2, kTrans, 1.0);
 
       num_done++;
       num_feats += feat1.NumRows();
@@ -122,30 +121,66 @@ int main(int argc, char *argv[]) {
     Sigma_2.Scale(1.0/(num_feats-1));
 
     Sigma_1.AddToDiag(regularizers[0]);
+    Sigma_2.AddToDiag(regularizers[1]);
+
     TpMatrix<BaseFloat> R_1(Sigma_1.NumRows());
     R_1.Cholesky(Sigma_1);
     R_1.Invert();
     
-    Sigma_2.AddToDiag(regularizers[1]);
-    TpMatrix<BaseFloat> R_2(Sigma_2.NumRows());
-    R_2.Cholesky(Sigma_2);
-    R_2.Invert();
+    KALDI_VLOG(4) << "Sigma_1: " << Sigma_1;
+    KALDI_VLOG(4) << "Sigma_2: " << Sigma_2;
+    KALDI_VLOG(4) << "Sigma_12: " << Sigma_12;
+    
+    KALDI_VLOG(4) << "R_1_inv: " << R_1;
 
-    Matrix<BaseFloat> T(dim,dim);
-    T.AddTpMatTp(1.0, R_1, Sigma_12, kNoTrans, 
-                  R_2, 0.0);
+    Sigma_2.Invert();
+    
+    KALDI_VLOG(4) << "Sigma_2_inv: " << Sigma_2;
+
+    //TpMatrix<BaseFloat> R_2(Sigma_2.NumRows());
+    //R_2.Cholesky(Sigma_2);
+    //R_2.Invert();
 
     int32 min_rc = dim;
     Matrix<BaseFloat> U(dim, min_rc);
-    Matrix<BaseFloat> Vt(dim, min_rc);
     Vector<BaseFloat> s(min_rc);
-    T.Svd(&s, &U, &Vt);
-    SortSvd(&s, &U, &Vt);
+    {
+      SpMatrix<BaseFloat> A(dim);
+      Matrix<BaseFloat> temp(dim,dim);
+      temp.AddTpMat(1.0, R_1, kNoTrans, Sigma_12, kNoTrans, 0.0);
+      A.AddMat2Sp(1.0, temp, kNoTrans, Sigma_2, 0.0);
+      
+      KALDI_VLOG(4) << "A: " << A;
+
+      A.Eig(&s, &U);
+      SortSvd(&s, &U);
+    }
+    KALDI_VLOG(4) << "U: " << U;
+    KALDI_VLOG(4) << "s: " << s;
 
     U.Resize(dim, target_dim, kCopyData);
     s.Resize(target_dim, kCopyData);
-    Vt.Resize(target_dim, dim, kCopyData);
+    U.AddTpMat(1.0, R_1, kTrans, Matrix<BaseFloat>(U), kNoTrans, 0.0);
+    
+    KALDI_VLOG(4) << "Rescaled U: " << U;
 
+    Matrix<BaseFloat> Vt(target_dim, dim);
+    Vt.AddMatMat(1.0, U, kTrans, Sigma_12, kNoTrans, 0.0);
+    KALDI_VLOG(4) << "Vt: " << Vt;
+    Vt.AddMatSp(1.0, Matrix<BaseFloat>(Vt), kNoTrans, Sigma_2, 0.0);
+    KALDI_VLOG(4) << "Vt: " << Vt;
+    for (MatrixIndexT i = 0; i < target_dim; i++) {
+      SubVector<BaseFloat> Vt_i(Vt, i);
+      if (s(i) >= 1e-10) {
+        s(i) = std::sqrt(s(i));
+        Vt_i.Scale(1.0/s(i));
+      } else {
+        s(i) = 0.0;
+      }
+    }
+    KALDI_VLOG(4) << "Rescaled Vt: " << Vt;
+    KALDI_VLOG(4) << "Resclaed s: " << s;
+    
     BaseFloat corr = s.Sum();
 
     KALDI_LOG << "The correlation between the two sets of features is " 
@@ -153,14 +188,8 @@ int main(int argc, char *argv[]) {
               << " CCA dimensions; feature dimension is " << dim;
 
     if (po.NumArgs() == 4) {
-      Matrix<BaseFloat> trans_12(dim, target_dim);
-      Matrix<BaseFloat> trans_21(dim, target_dim);
-
-      trans_12.AddSpMat(1.0, Sigma_1, U, kNoTrans, 0.0);
-      trans_21.AddSpMat(1.0, Sigma_2, Vt, kTrans, 0.0);
-
-      WriteKaldiObject(trans_12, po.GetArg(3), binary);
-      WriteKaldiObject(trans_21, po.GetArg(4), binary);
+      WriteKaldiObject(U, po.GetArg(3), binary);
+      WriteKaldiObject(Matrix<BaseFloat>(Vt, kTrans), po.GetArg(4), binary);
     }
 
     KALDI_LOG << "Processed " << num_done << " feature files, "

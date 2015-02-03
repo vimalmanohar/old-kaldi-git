@@ -95,7 +95,7 @@ utils/split_data.sh $data_view2 $nj
 awk '{print $1}' $data_view1/utt2spk | utils/shuffle_list.pl | head -$num_utts_subset \
     | sort > $dir/valid_uttlist || exit 1;
 
-if [ -f $data_view1/utt2uniq ]; then
+if [ -f $data_view2/utt2uniq ]; then
   mv $dir/valid_uttlist $dir/valid_uttlist.tmp
   [ ! -s $dir/valid_uttlist.tmp ] && exit 1
   utils/utt2spk_to_spk2utt.pl $data_view1/utt2uniq > $dir/uniq2utt

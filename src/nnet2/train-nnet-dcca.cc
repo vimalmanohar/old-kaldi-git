@@ -135,10 +135,10 @@ BaseFloat NnetDccaTrainer::CompObjfAndGradient(
   int32 num_views = H.size();
   int32 num_samples = H[0]->NumRows();
   
-  std::vector<CuTpMatrix<BaseFloat>* > 
-        R_hat(num_views,
-        static_cast<CuTpMatrix<BaseFloat>* >(NULL));
-  
+  std::vector<CuSpMatrix<BaseFloat>* > 
+        Sigma_hat_sqrt_inv(num_views,
+        static_cast<CuSpMatrix<BaseFloat>* >(NULL));
+
   std::vector<CuMatrix<BaseFloat>* > H_bar(num_views,
         static_cast<CuMatrix<BaseFloat>* >(NULL));
 
@@ -152,21 +152,24 @@ BaseFloat NnetDccaTrainer::CompObjfAndGradient(
     }
     
     // Compute the covariance matrix
-    CuSpMatrix<BaseFloat> Sigma_hat(H_bar[i]->NumCols());
-    Sigma_hat.AddMat2(1.0/(num_samples-1), 
+    Sigma_hat_sqrt_inv[i] = new CuSpMatrix<BaseFloat>(H_bar[i]->NumCols());
+    Sigma_hat_sqrt_inv[i]->AddMat2(1.0/(num_samples-1), 
                                    *(H_bar[i]), kTrans, 0.0);
-    Sigma_hat.AddToDiag(regularizers[i]);
+    Sigma_hat_sqrt_inv[i]->AddToDiag(regularizers[i]);
    
-    R_hat[i] = new CuTpMatrix<BaseFloat>(H_bar[i]->NumCols());
-    R_hat[i]->Cholesky(Sigma_hat);
-    R_hat[i]->Invert();
+    {
+      SpMatrix<BaseFloat> Sigma_hat(*(Sigma_hat_sqrt_inv[i]));
+      Sigma_hat.Sqrtm();
+      Sigma_hat_sqrt_inv[i]->CopyFromSp(Sigma_hat);
+    }
+    Sigma_hat_sqrt_inv[i]->Invert();
   }
   
   KALDI_VLOG(4) << "H_bar0: \n" << *H_bar[0];
   KALDI_VLOG(4) << "H_bar1: \n" << *H_bar[1];
   
-  KALDI_VLOG(4) << "R_hat0: \n" << *R_hat[0];
-  KALDI_VLOG(4) << "R_hat1: \n" << *R_hat[1];
+  KALDI_VLOG(4) << "Sigma_hat_sqrt_inv0: \n" << *Sigma_hat_sqrt_inv[0];
+  KALDI_VLOG(4) << "Sigma_hat_sqrt_inv1: \n" << *Sigma_hat_sqrt_inv[1];
   
   CuMatrix<BaseFloat> Sigma_hat_01(H_bar[0]->NumCols(),
                                    H_bar[1]->NumCols());
@@ -178,9 +181,9 @@ BaseFloat NnetDccaTrainer::CompObjfAndGradient(
   CuMatrix<BaseFloat> T(H_bar[0]->NumCols(), H_bar[1]->NumCols());
   {
     CuMatrix<BaseFloat> temp(H_bar[0]->NumCols(), H_bar[1]->NumCols());
-    temp.AddMatTp(1.0, Sigma_hat_01, kNoTrans, 
-                  *(R_hat[1]), kNoTrans, 0.0);
-    T.AddTpMat(1.0, *(R_hat[0]), kNoTrans, temp, kNoTrans, 0.0);
+    temp.AddMatSp(1.0, Sigma_hat_01, kNoTrans, 
+                  *(Sigma_hat_sqrt_inv[1]), 0.0);
+    T.AddSpMat(1.0, *(Sigma_hat_sqrt_inv[0]), temp, kNoTrans, 0.0);
   }
   
   KALDI_VLOG(4) << "T: \n" << T;
@@ -204,17 +207,19 @@ BaseFloat NnetDccaTrainer::CompObjfAndGradient(
     }
 
     // Compute Delta_0 
-    Matrix<BaseFloat> RtU_0(Delta_0.NumRows(), Delta_0.NumCols());
-    RtU_0.AddTpMat(1.0, TpMatrix<BaseFloat>(*(R_hat[0])), kTrans, U, kNoTrans, 0.0);
-    Delta_0.AddMat2Vec(-0.5, RtU_0, kNoTrans, s, 0.0);
+    Matrix<BaseFloat> RU_0(Delta_0.NumRows(), Delta_0.NumCols());
+    RU_0.AddSpMat(1.0, SpMatrix<BaseFloat>(
+          *(Sigma_hat_sqrt_inv[0])), U, kNoTrans, 0.0);
+    Delta_0.AddMat2Vec(-0.5, RU_0, kNoTrans, s, 0.0);
 
     // Compute Delta_1
-    Matrix<BaseFloat> VtRt_1(Delta_1.NumRows(), Delta_1.NumCols());
-    VtRt_1.AddMatTp(1.0, Vt, kNoTrans, TpMatrix<BaseFloat>(*(R_hat[0])), kTrans, 0.0);
-    Delta_1.AddMat2Vec(-0.5, VtRt_1, kNoTrans, s, 0.0);
+    Matrix<BaseFloat> RV_1(Delta_1.NumRows(), Delta_1.NumCols());
+    RV_1.AddSpMat(1.0, SpMatrix<BaseFloat>(
+          *(Sigma_hat_sqrt_inv[1])), Vt, kTrans, 0.0);
+    Delta_1.AddMat2Vec(-0.5, RV_1, kNoTrans, s, 0.0);
 
     // Compute Delta_01
-    Delta_01.AddMatMat(1.0, RtU_0, kNoTrans, VtRt_1, kNoTrans, 0.0);
+    Delta_01.AddMatMat(1.0, RU_0, kNoTrans, RV_1, kTrans, 0.0);
   }
 
   KALDI_VLOG(4) << "Delta0: \n" << Delta_0;
@@ -237,7 +242,7 @@ BaseFloat NnetDccaTrainer::CompObjfAndGradient(
   {
     CuMatrix<BaseFloat> &tmp_deriv(*(*tmp_derivs)[1]);
     tmp_deriv.AddMatSp(2.0/(num_samples-1), *(H_bar[1]), kNoTrans,
-                       CuMatrix<BaseFloat>(Delta_1), 0.0);
+                       CuSpMatrix<BaseFloat>(Delta_1), 0.0);
     tmp_deriv.AddMatMat(1.0/(num_samples-1), *(H_bar[0]), kNoTrans,
                        CuMatrix<BaseFloat>(Delta_01), kNoTrans, 1.0);
   }

@@ -64,52 +64,61 @@ int main(int argc, char *argv[]) {
     int32 dim_out = 0;
     
     // figure out the selected dimensions
-    istringstream iss(sspecifier);
-    string token;
     vector<pair<int32, int32> > ranges;
     vector<int32> offsets;
-    while (getline(iss, token, ',')) {
-      size_t p = token.find('-');
-      if (p != string::npos) {
-        int s, e;
-        istringstream(token.substr(0, token.length() - p - 1)) >> s;
-        istringstream(token.substr(p+1)) >> e;
-        
-        if (s < 0 || s > (dim_in-1)) {
-          KALDI_ERR << "Invalid range start: " << s;
-          return 1;
-        } else if (e < 0 || e > (dim_in-1)) {
-          KALDI_ERR << "Invalid range end: " << e;
-          return 1;
+
+    {
+      istringstream iss(sspecifier);
+      string token;
+      while (getline(iss, token, ',')) {
+        if (token == "-") {
+          ranges.push_back(make_pair(0, dim_in-1));
+          offsets.push_back(0);
+          dim_out = dim_in;
+          break;
         }
-        
-        // reverse range? make individual selections
-        if (s > e) {
-          for (int32 i = s; i >= e; --i) {
-            ranges.push_back(pair<int32, int32>(i, i));
+        size_t p = token.find('-');
+        if (p != string::npos) {
+          int s, e;
+          istringstream(token.substr(0, token.length() - p - 1)) >> s;
+          istringstream(token.substr(p+1)) >> e;
+
+          if (s < 0 || s > (dim_in-1)) {
+            KALDI_ERR << "Invalid range start: " << s;
+            return 1;
+          } else if (e < 0 || e > (dim_in-1)) {
+            KALDI_ERR << "Invalid range end: " << e;
+            return 1;
+          }
+
+          // reverse range? make individual selections
+          if (s > e) {
+            for (int32 i = s; i >= e; --i) {
+              ranges.push_back(pair<int32, int32>(i, i));
+              offsets.push_back(dim_out);
+              dim_out += 1;
+            }
+          } else {
+            ranges.push_back(pair<int32, int32>(s, e));
             offsets.push_back(dim_out);
-            dim_out += 1;
+            dim_out += (e - s + 1);
           }
         } else {
-          ranges.push_back(pair<int32, int32>(s, e));
+          int i;
+          istringstream(token) >> i;
+
+          if (i < 0 || i > (dim_in - 1)) {
+            KALDI_ERR << "Invalid selection index: " << i;
+            return 1;
+          }
+
+          ranges.push_back(pair<int32, int32>(i, i));
           offsets.push_back(dim_out);
-          dim_out += (e - s + 1);
+          dim_out += 1;
         }
-      } else {
-        int i;
-        istringstream(token) >> i;
-        
-        if (i < 0 || i > (dim_in - 1)) {
-          KALDI_ERR << "Invalid selection index: " << i;
-          return 1;
-        }
-        
-        ranges.push_back(pair<int32, int32>(i, i));
-        offsets.push_back(dim_out);
-        dim_out += 1;
       }
     }
-    
+
     if (ranges.size() < 1) {
       KALDI_ERR << "No ranges or indices in selection string!";
       return 1;
