@@ -6,20 +6,23 @@ stage=1
 train_stage=-10
 use_gpu=true
 mix_up=5000
-initial_learning_rate=0.008
-final_learning_rate=0.0008
+initial_learning_rate=0.002
+final_learning_rate=0.0002
 num_hidden_layers=3
 pnorm_input_dim=2000
 pnorm_output_dim=200
 num_epochs=15
+do_decode=false
+egs_dir=
+test=data_noisy/dev_multi
 
 . cmd.sh
 . ./path.sh
 . ./utils/parse_options.sh
 
 if [ $# -ne 4 ]; then
-  echo "Usage: local/run_nnet.sh <data-dir> <lang> <ali-dir> <exp-dir>"
-  echo "e.g. : local/run_nnet.sh data/train_clean data/lang exp/tri3_ali exp/tri4_nnet"
+  echo "Usage: local/online/run_nnet2.sh <data-dir> <lang> <ali-dir> <exp-dir>"
+  echo "e.g. : local/online/run_nnet2.sh data/train_clean data/lang exp/tri3_ali exp/tri4_nnet"
   exit 1
 fi
 
@@ -73,16 +76,20 @@ if [ $stage -le 4 ]; then
     --cmd "$decode_cmd" \
     --pnorm-input-dim $pnorm_input_dim \
     --pnorm-output-dim $pnorm_output_dim \
+    --egs-dir "$egs_dir" \
     $train $lang $ali_dir $dir || exit 1;
 fi
 
-exit 0
-
-if [ $stage -le 5 ]; then
-  steps/online/nnet2/extract_ivectors_online.sh --cmd "$train_cmd" \
-    --nj 4 data/test exp/nnet2_online/extractor \
-    exp/nnet2_online/ivectors_test || exit 1;
+if ! $do_decode; then
+  echo "Done training neural network. But not running decode."
+  exit 0
 fi
+
+#if [ $stage -le 5 ]; then
+#  steps/online/nnet2/extract_ivectors_online.sh --cmd "$train_cmd" \
+#    --nj 4 data/test exp/nnet2_online/extractor \
+#    exp/nnet2_online/ivectors_test || exit 1;
+#fi
 
 if [ $stage -le 6 ]; then
   # Note: comparing the results of this with run_online_decoding_nnet2_baseline.sh,
@@ -91,16 +98,13 @@ if [ $stage -le 6 ]; then
   # nicely.  This setup seems to have too little data for it to work, but it suffices
   # to demonstrate the scripts.   We will likely modify it to add noise to the
   # iVectors in training, which will tend to mitigate the over-training.
-  steps/nnet2/decode.sh --config conf/decode.config --cmd "$decode_cmd" --nj 20 \
-    --online-ivector-dir exp/nnet2_online/ivectors_test \
-    exp/tri3b/graph data/test $dir/decode  &
-
-  steps/nnet2/decode.sh --config conf/decode.config --cmd "$decode_cmd" --nj 20 \
-    --online-ivector-dir exp/nnet2_online/ivectors_test \
-    exp/tri3b/graph_ug data/test $dir/decode_ug || exit 1;
+  steps/nnet2/decode.sh --cmd "$decode_cmd" --nj 10 \
+    exp_clean/tri3/graph $test $dir/decode_`basename $test`  &
 
   wait
 fi
+
+exit 0
 
 if [ $stage -le 7 ]; then
   # If this setup used PLP features, we'd have to give the option --feature-type plp
@@ -113,8 +117,6 @@ if [ $stage -le 8 ]; then
   # do the actual online decoding with iVectors.
   steps/online/nnet2/decode.sh --config conf/decode.config --cmd "$decode_cmd" --nj 20 \
     exp/tri3b/graph data/test ${dir}_online/decode &
-  steps/online/nnet2/decode.sh --config conf/decode.config --cmd "$decode_cmd" --nj 20 \
-    exp/tri3b/graph_ug data/test ${dir}_online/decode_ug || exit 1;
   wait
 fi
 
@@ -124,9 +126,6 @@ if [ $stage -le 9 ]; then
   steps/online/nnet2/decode.sh --config conf/decode.config --cmd "$decode_cmd" --nj 20 \
     --per-utt true \
     exp/tri3b/graph data/test ${dir}_online/decode_per_utt &
-  steps/online/nnet2/decode.sh --config conf/decode.config --cmd "$decode_cmd" --nj 20 \
-    --per-utt true \
-    exp/tri3b/graph_ug data/test ${dir}_online/decode_ug_per_utt || exit 1;
   wait
 fi
 

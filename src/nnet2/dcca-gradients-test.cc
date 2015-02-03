@@ -143,9 +143,7 @@ void CheckGradientsToy(BaseFloat delta) {
   }
 }
 
-void CheckObj(const Matrix<BaseFloat> &mat0, const Matrix<BaseFloat> &mat1) {
-  std::vector<BaseFloat> regularizers(2,1.0);
-  
+void CheckObj(const Matrix<BaseFloat> &mat0, const Matrix<BaseFloat> &mat1, const std::vector<BaseFloat> &regularizers) {
   CuMatrix<BaseFloat> H0(mat0);
   CuMatrix<BaseFloat> H1(mat1);
 
@@ -187,13 +185,13 @@ int main(int argc, char **argv) {
 
   BaseFloat delta = 1e-6;
   std::string mat0_rxfilename = "mat0.txt", 
-    mat1_rxfilename = "mat1.txt";
-  
+    mat1_rxfilename = "mat1.txt", r = "1:1";
   ParseOptions po(usage);
 
   po.Register("delta", &delta, "Delta used for approximating gradient");
   po.Register("mat0-file", &mat0_rxfilename, "Matrix 0 input");
   po.Register("mat1-file", &mat1_rxfilename, "Matrix 1 input");
+  po.Register("regularizer-list", &r, "Regularizer list");
 
   po.Read(argc, argv);
 
@@ -208,7 +206,9 @@ int main(int argc, char **argv) {
   ReadKaldiObject(mat0_rxfilename, &mat0);
   ReadKaldiObject(mat1_rxfilename, &mat1);
 
-  CheckObj(mat0, mat1);
+  std::vector<BaseFloat> regularizers;
+  SplitStringToFloats(r, ":", false, &regularizers);
+  CheckObj(mat0, mat1, regularizers);
 
   return 0;
 

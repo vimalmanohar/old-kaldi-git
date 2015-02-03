@@ -86,6 +86,7 @@ prior_subset_size=10000 # 10k samples per job, for computing priors.  Should be
                         # more than enough.
 regularizer_list="1.0:1.0"
 output_dim_list="13 13"
+reinitialize_nnet=true
 
 # End configuration section.
 
@@ -181,42 +182,51 @@ num_jobs_nnet=`cat $egs_dir/num_jobs_nnet` || exit 1;
 if [ $stage -le -2 ]; then
   echo "$0: initializing neural net";
   
-  online_preconditioning_opts="alpha=$alpha num-samples-history=$num_samples_history update-period=$update_period rank-in=$precondition_rank_in rank-out=$precondition_rank_out max-change-per-sample=$max_change_per_sample"
-  
-  nc=`nnet2-info --raw=true $model_view1 2> /dev/null | grep num-components | awk '{print $2}'` || exit 1
-  [ -z "$nc" ] && echo "$0: Unable to parse num-components from nnet2-info --raw=true $model_view1" && exit 1
+  if $reinitialize_nnet; then
+    online_preconditioning_opts="alpha=$alpha num-samples-history=$num_samples_history update-period=$update_period rank-in=$precondition_rank_in rank-out=$precondition_rank_out max-change-per-sample=$max_change_per_sample"
 
-  hidden_layer_dim=`nnet2-info --raw=true $model_view1 2> /dev/null | grep "component $[nc-1]" | perl -pe 's/.+input-dim=(\d+), .+/$1/'` || exit 1
-  [ -z "$hidden_layer_dim" ] && echo "$0: Unable to parse hidden_layer_dim from nnet2-info --raw=true $model_view1" && exit 1
+    nc=`nnet2-info --raw=true $model_view1 2> /dev/null | grep num-components | awk '{print $2}'` || exit 1
+    [ -z "$nc" ] && echo "$0: Unable to parse num-components from nnet2-info --raw=true $model_view1" && exit 1
 
-  stddev=`perl -e "print 1.0/sqrt($hidden_layer_dim);"`
+    hidden_layer_dim=`nnet2-info --raw=true $model_view1 2> /dev/null | grep "component $[nc-1]" | perl -pe 's/.+input-dim=(\d+), .+/$1/'` || exit 1
+    [ -z "$hidden_layer_dim" ] && echo "$0: Unable to parse hidden_layer_dim from nnet2-info --raw=true $model_view1" && exit 1
 
-  output_dim=`echo $output_dim_list | awk '{print $1}'`
-  cat >$dir/nnet.view1.config <<EOF
-AffineComponentPreconditionedOnline input-dim=$hidden_layer_dim output-dim=$output_dim $online_preconditioning_opts learning-rate=$initial_learning_rate param-stddev=$stddev bias-stddev=$bias_stddev
+    stddev=`perl -e "print 1.0/sqrt($hidden_layer_dim);"`
+
+    output_dim=`echo $output_dim_list | awk '{print $1}'`
+
+    cat >$dir/nnet.view1.config <<EOF
+    AffineComponentPreconditionedOnline input-dim=$hidden_layer_dim output-dim=$output_dim $online_preconditioning_opts learning-rate=$initial_learning_rate param-stddev=$stddev bias-stddev=$bias_stddev
 EOF
 
-  $cmd $dir/log/nnet_init.view1.log \
-    nnet2-copy --raw=true --truncate=$[nc-1] $model_view1 - \| \
-    nnet-insert --raw=true --insert-at=$[nc-1] --randomize-next-component=false \
-    - "nnet-init $dir/nnet.view1.config - |" $dir/0.view1.nnet || exit 1;
+    $cmd $dir/log/nnet_init.view1.log \
+      nnet2-copy --raw=true --truncate=$[nc-1] $model_view1 - \| \
+      nnet-insert --raw=true --insert-at=$[nc-1] --randomize-next-component=false \
+      - "nnet-init $dir/nnet.view1.config - |" $dir/0.view1.nnet || exit 1;
 
-  nc=`nnet2-info --raw=true $model_view2 2> /dev/null | grep num-components | awk '{print $2}'` || exit 1
-  [ -z "$nc" ] && echo "$0: Unable to parse num-components from nnet2-info --raw=true $model_view2" && exit 1
+    nc=`nnet2-info --raw=true $model_view2 2> /dev/null | grep num-components | awk '{print $2}'` || exit 1
+    [ -z "$nc" ] && echo "$0: Unable to parse num-components from nnet2-info --raw=true $model_view2" && exit 1
 
-  hidden_layer_dim=`nnet2-info --raw=true $model_view2 2> /dev/null | grep "component $[nc-1]" | perl -pe 's/.+input-dim=(\d+), .+/$1/'` || exit 1
-  [ -z "$hidden_layer_dim" ] && echo "$0: Unable to parse hidden_layer_dim from nnet2-info --raw=true $model_view2" && exit 1
-  stddev=`perl -e "print 1.0/sqrt($hidden_layer_dim);"`
+    hidden_layer_dim=`nnet2-info --raw=true $model_view2 2> /dev/null | grep "component $[nc-1]" | perl -pe 's/.+input-dim=(\d+), .+/$1/'` || exit 1
+    [ -z "$hidden_layer_dim" ] && echo "$0: Unable to parse hidden_layer_dim from nnet2-info --raw=true $model_view2" && exit 1
+    stddev=`perl -e "print 1.0/sqrt($hidden_layer_dim);"`
 
-  output_dim=`echo $output_dim_list | awk '{print $2}'`
-  cat >$dir/nnet.view2.config <<EOF
-AffineComponentPreconditionedOnline input-dim=$hidden_layer_dim output-dim=$output_dim $online_preconditioning_opts learning-rate=$initial_learning_rate param-stddev=$stddev bias-stddev=$bias_stddev
+    output_dim=`echo $output_dim_list | awk '{print $2}'`
+
+    cat >$dir/nnet.view2.config <<EOF
+  AffineComponentPreconditionedOnline input-dim=$hidden_layer_dim output-dim=$output_dim $online_preconditioning_opts learning-rate=$initial_learning_rate param-stddev=$stddev bias-stddev=$bias_stddev
 EOF
 
-  $cmd $dir/log/nnet_init.view2.log \
-    nnet2-copy --raw=true --truncate=$[nc-1] $model_view2 - \| \
-    nnet-insert --raw=true --insert-at=$[nc-1] --randomize-next-component=false \
-    - "nnet-init $dir/nnet.view2.config - |" $dir/0.view2.nnet || exit 1;
+    $cmd $dir/log/nnet_init.view2.log \
+      nnet2-copy --raw=true --truncate=$[nc-1] $model_view2 - \| \
+      nnet-insert --raw=true --insert-at=$[nc-1] --randomize-next-component=false \
+      - "nnet-init $dir/nnet.view2.config - |" $dir/0.view2.nnet || exit 1;
+  else
+    $cmd $dir/log/nnet_init.view1.log \
+      nnet2-copy --raw=true $model_view1 $dir/0.view1.nnet || exit 1;
+    $cmd $dir/log/nnet_init.view2.log \
+      nnet2-copy --raw=true $model_view2 $dir/0.view2.nnet || exit 1;
+  fi
 fi
 
 num_iters_reduce=$[$num_epochs * $iters_per_epoch];
@@ -328,46 +338,6 @@ done
 
 ln -sf $x.view1.nnet $dir/final.view1.nnet
 ln -sf $x.view2.nnet $dir/final.view2.nnet
-
-<<COMMENT
-# Now do combination.
-# At the end, final.nnet will be a combination of the last e.g. 10 models.
-nnets_list_view1=()
-if [ $num_iters_final -gt $num_iters_extra ]; then
-  echo "Setting num_iters_final=$num_iters_extra"
-fi
-start=$[$num_iters-$num_iters_final+1]
-for x in `seq $start $num_iters`; do
-  idx=$[$x-$start]
-  nnets_list_view1[$idx]=$dir/$x.view1.nnet # "nnet2-copy --raw=true --remove-dropout=true $dir/$x.nnet - |"
-  nnets_list_view1[$idx]=$dir/$x.view2.nnet # "nnet2-copy --raw=true --remove-dropout=true $dir/$x.nnet - |"
-done
-
-if [ $stage -le $num_iters ]; then
-  echo "Doing final combination to produce final.nnet"
-  # Below, use --use-gpu=no to disable nnet-combine-fast from using a GPU, as if
-  # there are many models it can give out-of-memory error on the GPU; set
-  # num-threads to 8 to speed it up (this isn't ideal...)
-  num_egs=`nnet-copy-egs ark:$egs_dir/combine.egs ark:/dev/null 2>&1 | tail -n 1 | awk '{print $NF}'`
-  mb=$[($num_egs+$combine_num_threads-1)/$combine_num_threads]
-  [ $mb -gt 512 ] && mb=512
-  $cmd $combine_parallel_opts $dir/log/combine.log \
-    nnet-combine-fast --raw=true --use-gpu=no --num-threads=$combine_num_threads \
-      --verbose=3 --minibatch-size=$mb $objf_opts \
-      "${nnets_list_view1[@]}" ark:$egs_dir/combine.egs \
-      $dir/final.nnet || exit 1;
-
-  # Compute the probability of the final, combined model with
-  # the same subset we used for the previous compute_probs, as the
-  # different subsets will lead to different probs.
-  $cmd $dir/log/compute_prob_valid.final.log \
-    nnet-compute-prob --raw=true $objf_opts $dir/final.nnet ark:$egs_dir/valid_diagnostic.egs &
-  $cmd $dir/log/compute_prob_train.final.log \
-    nnet-compute-prob --raw=true $objf_opts $dir/final.nnet ark:$egs_dir/train_diagnostic.egs &
-fi
-COMMENT
-
-sleep 2
 
 echo Done
 

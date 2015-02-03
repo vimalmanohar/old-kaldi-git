@@ -17,17 +17,18 @@
 # We made this a separate script because not all of the options that the
 # old script accepted, are still accepted.
 
+set -u
+set -e
 
 # Begin configuration section.
 cmd=run.pl
-num_epochs=15      # Number of epochs during which we reduce
-                   # the learning rate; number of iteration is worked out from this.
-num_epochs_extra=5 # Number of epochs after we stop reducing
-                   # the learning rate.
+num_epochs_per_layer=2       # Number of epochs of training per layer
+num_epochs_extra=5 # Number of epochs of fine-tuning all layers
 num_iters_final=20 # Maximum number of final iterations to give to the
                    # optimization over the validation set.
-initial_learning_rate=0.04
-final_learning_rate=0.004
+learning_rate=0.04
+initial_tuning_learning_rate=0.04
+final_tuning_learning_rate=0.004
 bias_stddev=0.5
 shrink_interval=5 # shrink every $shrink_interval iters except while we are 
                   # still adding layers, when we do it every iter.
@@ -36,6 +37,7 @@ num_frames_shrink=2000 # note: must be <= --num-frames-diagnostic option to get_
                        # given.
 final_learning_rate_factor=0.5 # Train the two last layers of parameters half as
                                # fast as the other layers, by default.
+                               # Only applicable for fine-tuning
 
 hidden_layer_dim=300 #  You may want this larger, e.g. 1024 or 2048.
 
@@ -47,6 +49,7 @@ samples_per_iter=200000 # each iteration of training, see this many samples
                         # per job.  This option is passed to get_denoising_autoencoder_egs.sh.
 num_jobs_nnet=8    # Number of neural net jobs to run in parallel.  This option
                    # is passed to get_denoising_autoencoder_egs.sh.
+online_ivector_dir=
 get_egs_stage=0
 
 shuffle_buffer_size=5000 # This "buffer_size" variable controls randomization of
@@ -56,12 +59,11 @@ shuffle_buffer_size=5000 # This "buffer_size" variable controls randomization of
                 # disk and memory but less random.  It's not a huge deal though,
                 # as samples are anyway randomized right at the start.
 
-add_layers_period=2 # by default, add new layers every 2 iterations.
 num_hidden_layers=3 # This is an important configuration value that you might
                     # want to tune.
 stage=-5
 
-io_opts="-tc 5" # for jobs with a lot of I/O, limits the number running at one time.   These don't
+io_opts="--max-jobs-run 5" # for jobs with a lot of I/O, limits the number running at one time.   These don't
 splice_width=3 # meaning +- 3 frames on each side for second LDA
 randprune=4.0 # speeds up LDA.
 alpha=4.0 # relates to preconditioning.
@@ -73,9 +75,9 @@ max_change_per_sample=0.075
 precondition_rank_in=30  # relates to online preconditioning
 precondition_rank_out=60 # relates to online preconditioning
 num_threads=16
-parallel_opts="-pe smp 16 -l ram_free=1G,mem_free=1G" # by default we use 16 threads; this lets the queue know.
+parallel_opts="--num-threads 16 --mem 1G" # by default we use 16 threads; this lets the queue know.
   # note: parallel_opts doesn't automatically get adjusted if you adjust num-threads.
-combine_parallel_opts="-pe smp 8"  # queue options for the "combine" stage.
+combine_parallel_opts="--num-threads 8"  # queue options for the "combine" stage.
 combine_num_threads=8
 cleanup=true
 egs_dir=
@@ -179,9 +181,9 @@ if [ -z $egs_dir ]; then
 fi
 
 # These files are written by local/nnet2/get_denoising_autoencoder_egs.sh
-feat_dim=$(cat $dir/feat_dim) || exit 1;
-ivector_dim=$(cat $dir/ivector_dim) || exit 1;
-target_dim=$(cat $dir/target_dim) || exit 1;
+feat_dim=$(cat $egs_dir/feat_dim) || exit 1;
+ivector_dim=$(cat $egs_dir/ivector_dim) || exit 1;
+target_dim=$(cat $egs_dir/target_dim) || exit 1;
 
 iters_per_epoch=`cat $egs_dir/iters_per_epoch`  || exit 1;
 ! [ $num_jobs_nnet -eq `cat $egs_dir/num_jobs_nnet` ] && \
@@ -203,31 +205,33 @@ if [ $stage -le -2 ]; then
   online_preconditioning_opts="alpha=$alpha num-samples-history=$num_samples_history update-period=$update_period rank-in=$precondition_rank_in rank-out=$precondition_rank_out max-change-per-sample=$max_change_per_sample"
 
   stddev=`perl -e "print 1.0/sqrt($hidden_layer_dim);"`
-  cat >$dir/nnet.config <<EOF
-SpliceComponent input-dim=$tot_input_dim left-context=$splice_width right-context=$splice_width const-component-dim=$ivector_dim
-AffineComponentPreconditionedOnline input-dim=$spliced_dim output-dim=$hidden_layer_dim $online_preconditioning_opts learning-rate=$initial_learning_rate param-stddev=$stddev bias-stddev=$bias_stddev
-TanhComponent dim=$hidden_layer_dim
-AffineComponentPreconditionedOnline input-dim=$hidden_layer_dim output-dim=$target_dim $online_preconditioning_opts learning-rate=$initial_learning_rate param-stddev=0 bias-stddev=0
-EOF
-
   # to hidden.config it will write the part of the config corresponding to a
   # single hidden layer; we need this to add new layers. 
   cat >$dir/hidden.config <<EOF
-AffineComponentPreconditionedOnline input-dim=$hidden_layer_dim output-dim=$hidden_layer_dim $online_preconditioning_opts learning-rate=$initial_learning_rate param-stddev=$stddev bias-stddev=$bias_stddev
+AffineComponentPreconditionedOnline input-dim=$hidden_layer_dim output-dim=$hidden_layer_dim $online_preconditioning_opts learning-rate=$initial_tuning_learning_rate param-stddev=$stddev bias-stddev=$bias_stddev
 TanhComponent dim=$hidden_layer_dim
 EOF
+
+  cat >$dir/nnet.config <<EOF
+SpliceComponent input-dim=$tot_input_dim left-context=$splice_width right-context=$splice_width const-component-dim=$ivector_dim
+AffineComponentPreconditionedOnline input-dim=$spliced_dim output-dim=$hidden_layer_dim $online_preconditioning_opts learning-rate=$initial_tuning_learning_rate param-stddev=$stddev bias-stddev=$bias_stddev
+TanhComponent dim=$hidden_layer_dim
+AffineComponentPreconditionedOnline input-dim=$hidden_layer_dim output-dim=$target_dim $online_preconditioning_opts learning-rate=$initial_tuning_learning_rate param-stddev=0 bias-stddev=0
+EOF
+
   $cmd $dir/log/nnet_init.log \
     nnet-init $dir/nnet.config $dir/0.nnet || exit 1;
 fi
 
 objf_opts="$objf_opts --target-dim=$target_dim"
 
-num_iters_reduce=$[$num_epochs * $iters_per_epoch];
+add_layers_period=$[$num_epochs_per_layer * $iters_per_epoch];
+num_iters_init=$[(num_hidden_layers-1) * add_layers_period]
 num_iters_extra=$[$num_epochs_extra * $iters_per_epoch];
-num_iters=$[$num_iters_reduce+$num_iters_extra]
+num_iters=$[add_layers_period * num_hidden_layers + num_iters_extra]
 
-echo "$0: Will train for $num_epochs + $num_epochs_extra epochs, equalling "
-echo "$0: $num_iters_reduce + $num_iters_extra = $num_iters iterations, "
+echo "$0: Will train for $num_epochs_per_layer * $num_hidden_layers + $num_epochs_extra epochs, equalling "
+echo "$0: $[$num_hidden_layers-1] * $add_layers_period + $num_iters_extra = $num_iters iterations, "
 echo "$0: (while reducing learning rate) + (with constant learning rate)."
 
 if [ $num_threads -eq 1 ]; then
@@ -263,10 +267,20 @@ while [ $x -lt $num_iters ]; do
     if [ $x -gt $add_layers_period ] && \
       [ $x -le $[$[num_hidden_layers-1]*$add_layers_period+1] ] && \
       [ $[($x-1) % $add_layers_period] -eq 0 ]; then
-      ia=`nnet2-info --raw=true $dir/$x.nnet 2>/dev/null | grep num-components | awk '{print $2}'` || exit 1
+      nnet2-info --raw=true $dir/$x.nnet >$dir/foo 2>/dev/null || exit 1
+      ia=`cat $dir/foo | grep num-components | awk '{print $2}'` || exit 1
       nnet="nnet-init --srand=$x $dir/hidden.config - | nnet-insert --insert-at=$[ia-1] --raw=true $dir/$x.nnet - - |"
     else
       nnet=$dir/$x.nnet
+      if [ $x -gt $[(num_hidden_layers-1)*add_layers_period+1] ]; then
+        lr_string="$initial_tuning_learning_rate"
+        for n in `seq 2 $nu`; do 
+          if [ $n -eq $na ] || [ $n -eq $[$na-1] ]; then lr=$(perl -e "print $final_learning_rate_factor * $initial_tuning_learning_rate");
+          else lr=$initial_tuning_learning_rate; fi
+          lr_string="$lr_string:$lr"
+        done
+        nnet="nnet2-copy --raw=true --learning-rates=$lr_string $dir/$x.nnet - |"
+      fi
     fi
 
     if [ $x -eq 0 ] || [ "$nnet" != "$dir/$x.nnet" ]; then
@@ -308,21 +322,37 @@ while [ $x -lt $num_iters ]; do
     for n in `seq 1 $num_jobs_nnet`; do
       nnets_list="$nnets_list $dir/$[$x+1].$n.nnet"
     done
-
-    learning_rate=`perl -e '($x,$n,$i,$f)=@ARGV; print ($x >= $n ? $f : $i*exp($x*log($f/$i)/$n));' $[$x+1] $num_iters_reduce $initial_learning_rate $final_learning_rate`;
-    last_layer_learning_rate=`perl -e "print $learning_rate * $final_learning_rate_factor;"`;
-    nnet2-info --raw=true $dir/$[$x+1].1.nnet> $dir/foo  2>/dev/null || exit 1
-    nu=`cat $dir/foo | grep num-updatable-components | awk '{print $2}'`
-    na=`cat $dir/foo | grep -v Fixed | grep AffineComponent | wc -l` 
-    # na is number of last updatable AffineComponent layer [one-based, counting only
-    # updatable components.]
-    # The last two layers will get this (usually lower) learning rate.
-    lr_string="$learning_rate"
-    for n in `seq 2 $nu`; do 
-      if [ $n -eq $na ] || [ $n -eq $[$na-1] ]; then lr=$last_layer_learning_rate;
-      else lr=$learning_rate; fi
-      lr_string="$lr_string:$lr"
-    done
+      
+    if [ $x -gt $add_layers_period ] && \
+      [ $x -le $[$[num_hidden_layers-1]*$add_layers_period+1] ] && \
+      [ $[($x-1) % $add_layers_period] -eq 0 ]; then
+      nnet2-info --raw=true $dir/$[$x+1].1.nnet> $dir/foo  2>/dev/null || exit 1
+      nu=`cat $dir/foo | grep num-updatable-components | awk '{print $2}'` || exit 1
+      na=`cat $dir/foo | grep -v Fixed | grep AffineComponent | wc -l` || exit 1
+      lr_string="0.0"
+      for n in `seq 2 $nu`; do 
+        if [ $n -eq $na ] || [ $n -eq $[$na-1] ]; then lr=$learning_rate;
+        else lr=0.0; fi
+        lr_string="$lr_string:$lr"
+      done
+    else
+      tuning_learning_rate=`perl -e '($x,$n,$i,$f)=@ARGV; print ($x >= $n ? $f : $i*exp($x*log($f/$i)/$n));' $[$x+1] $num_iters_init $initial_tuning_learning_rate $final_tuning_learning_rate`;
+      last_layer_learning_rate=`perl -e "print $learning_rate * $final_learning_rate_factor;"`;
+      nnet2-info --raw=true $dir/$[$x+1].1.nnet> $dir/foo  2>/dev/null || exit 1
+      nu=`cat $dir/foo | grep num-updatable-components | awk '{print $2}'`
+      na=`cat $dir/foo | grep -v Fixed | grep AffineComponent | wc -l` 
+      # na is number of last updatable AffineComponent layer [one-based, counting only
+      # updatable components.]
+      # Unlike the normal tanh network, where the last two layers will get a
+      # lower learning rate, in this training of denoising autoencoders, 
+      # we train only the last two layers.
+      lr_string="$tuning_learning_rate"
+      for n in `seq 2 $nu`; do 
+        if [ $n -eq $na ] || [ $n -eq $[$na-1] ]; then lr=$last_layer_learning_rate;
+        else lr=$tuning_learning_rate; fi
+        lr_string="$lr_string:$lr"
+      done
+    fi
 
     if $do_average; then    
       $cmd $dir/log/average.$x.log \
