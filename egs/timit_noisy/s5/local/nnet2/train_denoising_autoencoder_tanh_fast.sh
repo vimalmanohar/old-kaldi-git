@@ -22,7 +22,7 @@ set -e
 
 # Begin configuration section.
 cmd=run.pl
-num_epochs_per_layer=2       # Number of epochs of training per layer
+num_epochs_per_layer="2 4 4"      # Number of epochs of training per layer
 num_epochs_extra=5 # Number of epochs of fine-tuning all layers
 num_iters_final=20 # Maximum number of final iterations to give to the
                    # optimization over the validation set.
@@ -225,14 +225,26 @@ fi
 
 objf_opts="$objf_opts --target-dim=$target_dim"
 
-add_layers_period=$[$num_epochs_per_layer * $iters_per_epoch];
-num_iters_init=$[(num_hidden_layers-1) * add_layers_period]
-num_iters_extra=$[$num_epochs_extra * $iters_per_epoch];
-num_iters=$[add_layers_period * num_hidden_layers + num_iters_extra]
+num_epochs_array=($num_epochs_per_layer)
+if [ ${#num_epochs_array[@]} -ne $num_hidden_layers ]; then
+  echo "$0: --num-epochs-per-layers option must have size equal to the number of hidden layers" && exit 1
+fi
 
-echo "$0: Will train for $num_epochs_per_layer * $num_hidden_layers + $num_epochs_extra epochs, equalling "
-echo "$0: $[$num_hidden_layers-1] * $add_layers_period + $num_iters_extra = $num_iters iterations, "
-echo "$0: (while reducing learning rate) + (with constant learning rate)."
+declare -a add_layer_epochs
+declare -A add_layer_iters
+add_layer_epochs[0]=${num_epochs_array[0]}
+add_layer_iters[$[${add_layer_epochs[0]}*iters_per_epoch]]=2
+for n in `seq 1 $[num_hidden_layers-2]`; do
+  add_layer_epochs[$n]=$[${add_layer_epochs[$[n-1]]}+${num_epochs_array[$n]}]
+  add_layer_iters[$[${add_layer_epochs[$n]}*iters_per_epoch]]=$[n+2]
+done
+
+num_iters_init=$[${add_layer_epochs[$[num_hidden_layers-2]]}+${num_epochs_array[$[num_hidden_layers-1]]}]
+num_iters_extra=$[num_epochs_extra * iters_per_epoch];
+num_iters=$[num_iters_init + num_iters_extra]
+
+echo "$0: Will train for $num_iters_init while adding hidden layers "
+echo "$0: and $num_iters_extra of finetuning = $num_iters iterations"
 
 if [ $num_threads -eq 1 ]; then
   train_suffix="-simple" # this enables us to use GPU code if
@@ -264,24 +276,16 @@ while [ $x -lt $num_iters ]; do
     fi
     
     echo "Training neural net (pass $x)"
-    if [ $x -gt $add_layers_period ] && \
-      [ $x -le $[$[num_hidden_layers-1]*$add_layers_period+1] ] && \
-      [ $[($x-1) % $add_layers_period] -eq 0 ]; then
+    set +u
+    if [ ! -z "${add_layer_iters[$x]}" ]; then
+      # Add a new hidden layer
       nnet2-info --raw=true $dir/$x.nnet >$dir/foo 2>/dev/null || exit 1
       ia=`cat $dir/foo | grep num-components | awk '{print $2}'` || exit 1
       nnet="nnet-init --srand=$x $dir/hidden.config - | nnet-insert --insert-at=$[ia-1] --raw=true $dir/$x.nnet - - |"
     else
       nnet=$dir/$x.nnet
-      if [ $x -gt $[(num_hidden_layers-1)*add_layers_period+1] ]; then
-        lr_string="$initial_tuning_learning_rate"
-        for n in `seq 2 $nu`; do 
-          if [ $n -eq $na ] || [ $n -eq $[$na-1] ]; then lr=$(perl -e "print $final_learning_rate_factor * $initial_tuning_learning_rate");
-          else lr=$initial_tuning_learning_rate; fi
-          lr_string="$lr_string:$lr"
-        done
-        nnet="nnet2-copy --raw=true --learning-rates=$lr_string $dir/$x.nnet - |"
-      fi
     fi
+    set -u
 
     if [ $x -eq 0 ] || [ "$nnet" != "$dir/$x.nnet" ]; then
       # on iteration zero or when we just added a layer, use a smaller minibatch
@@ -323,15 +327,14 @@ while [ $x -lt $num_iters ]; do
       nnets_list="$nnets_list $dir/$[$x+1].$n.nnet"
     done
       
-    if [ $x -gt $add_layers_period ] && \
-      [ $x -le $[$[num_hidden_layers-1]*$add_layers_period+1] ] && \
-      [ $[($x-1) % $add_layers_period] -eq 0 ]; then
+    if [ $x -ge $[${num_epochs_array[0]}*iters_per_epoch] ] && [ $x -lt $num_iters_init ]; then
       nnet2-info --raw=true $dir/$[$x+1].1.nnet> $dir/foo  2>/dev/null || exit 1
       nu=`cat $dir/foo | grep num-updatable-components | awk '{print $2}'` || exit 1
       na=`cat $dir/foo | grep -v Fixed | grep AffineComponent | wc -l` || exit 1
       lr_string="0.0"
       for n in `seq 2 $nu`; do 
-        if [ $n -eq $na ] || [ $n -eq $[$na-1] ]; then lr=$learning_rate;
+        if [ $n -eq $[$na-1] ]; then lr=$learning_rate;
+        else if [ $n -eq $na ]; then lr=$(perl -e "print $learning_rate * $final_learning_rate_factor;"); 
         else lr=0.0; fi
         lr_string="$lr_string:$lr"
       done
