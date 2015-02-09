@@ -31,7 +31,7 @@ BINFILES = nnet-am-info nnet-init \
 	 nnet-average nnet-shrink nnet-fix nnet-distort-egs \
 	 nnet-train-dcca nnet-get-multiview-egs nnet-copy-multiview-egs \
 	 nnet-shuffle-multiview-egs nnet-subset-multiview-egs nnet-compute-corr \
-	 nnet-pair-egs-to-multiview-egs
+	 nnet-categorize-egs nnet-pair-egs-to-multiview-egs
 
 OBJFILES =
 
